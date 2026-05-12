@@ -29,10 +29,13 @@ import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.URL
 import java.net.NetworkInterface
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -89,10 +92,11 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
         val semaphore = Semaphore(32)
         val addresses = (1..254).map { "$prefix.$it" }.filterNot { it == localIp }
         val now = Instant.now().toString()
+        val ssdpHints = discoverSsdpDevices()
 
         val found = addresses.map { ip ->
             async(Dispatchers.IO) {
-                semaphore.withPermit { discoverDevice(ip, now) }
+                semaphore.withPermit { discoverDevice(ip, now, ssdpHints[ip]) }
             }
         }.awaitAll().filterNotNull()
 
@@ -188,7 +192,7 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
             .toString(2)
     }
 
-    private suspend fun discoverDevice(ip: String, now: String): DeviceEntry? {
+    private suspend fun discoverDevice(ip: String, now: String, ssdpHint: SsdpIdentity?): DeviceEntry? {
         val samsung = probeSamsungIdentity(ip)
         if (samsung != null) {
             return DeviceEntry(
@@ -205,12 +209,40 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
             )
         }
 
+        if (ssdpHint?.deviceType == "lg") {
+            return DeviceEntry(
+                id = ssdpHint.udn ?: "lg:$ip",
+                ip = ip,
+                name = ssdpHint.name ?: "[LG] $ip",
+                deviceType = "lg",
+                modelName = ssdpHint.modelName,
+                duid = ssdpHint.udn,
+                firstSeenAt = now,
+                lastSeenAt = now
+            )
+        }
+
+        if (ssdpHint?.deviceType == "tivo") {
+            return DeviceEntry(
+                id = ssdpHint.udn ?: "tivo:$ip",
+                ip = ip,
+                name = ssdpHint.name ?: "[TiVo] $ip",
+                deviceType = "tivo",
+                modelName = ssdpHint.modelName,
+                duid = ssdpHint.udn,
+                firstSeenAt = now,
+                lastSeenAt = now
+            )
+        }
+
         if (isPortOpen(ip, 3000) || isPortOpen(ip, 3001)) {
             return DeviceEntry(
                 id = "lg:$ip",
                 ip = ip,
-                name = "[LG] $ip",
+                name = ssdpHint?.name ?: "[LG] $ip",
                 deviceType = "lg",
+                modelName = ssdpHint?.modelName,
+                duid = ssdpHint?.udn,
                 firstSeenAt = now,
                 lastSeenAt = now
             )
@@ -220,14 +252,67 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
             return DeviceEntry(
                 id = "tivo:$ip",
                 ip = ip,
-                name = "[TiVo] $ip",
+                name = ssdpHint?.name ?: "[TiVo] $ip",
                 deviceType = "tivo",
+                modelName = ssdpHint?.modelName,
+                duid = ssdpHint?.udn,
                 firstSeenAt = now,
                 lastSeenAt = now
             )
         }
 
         return null
+    }
+
+    private suspend fun discoverSsdpDevices(): Map<String, SsdpIdentity> = withContext(Dispatchers.IO) {
+        val searchTargets = listOf(
+            "urn:lge-com:service:webos-second-screen:1",
+            "urn:schemas-upnp-org:device:MediaRenderer:1",
+            "ssdp:all"
+        )
+        val found = linkedMapOf<String, SsdpIdentity>()
+        val multicastAddress = InetAddress.getByName("239.255.255.250")
+
+        searchTargets.forEach { target ->
+            runCatching {
+                DatagramSocket().use { socket ->
+                    socket.broadcast = true
+                    socket.soTimeout = 500
+                    val payload = buildString {
+                        append("M-SEARCH * HTTP/1.1\r\n")
+                        append("HOST: 239.255.255.250:1900\r\n")
+                        append("MAN: \"ssdp:discover\"\r\n")
+                        append("MX: 1\r\n")
+                        append("ST: $target\r\n")
+                        append("\r\n")
+                    }.toByteArray()
+
+                    repeat(2) {
+                        socket.send(DatagramPacket(payload, payload.size, multicastAddress, 1900))
+                    }
+
+                    val deadline = System.currentTimeMillis() + 1400
+                    while (System.currentTimeMillis() < deadline) {
+                        val buffer = ByteArray(4096)
+                        val packet = DatagramPacket(buffer, buffer.size)
+                        try {
+                            socket.receive(packet)
+                            val response = String(packet.data, 0, packet.length)
+                            val headers = parseSsdpHeaders(response)
+                            val location = headers["location"]
+                            val ip = extractIpFromLocation(location) ?: packet.address?.hostAddress ?: continue
+                            classifySsdp(headers, ip)?.let { identity ->
+                                val enriched = enrichSsdpIdentity(identity)
+                                found[ip] = mergeSsdpIdentity(found[ip], enriched)
+                            }
+                        } catch (_: SocketTimeoutException) {
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        found
     }
 
     private suspend fun samsungPowerOff(device: DeviceEntry): Int {
@@ -641,6 +726,110 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
         null
     }
 
+    private fun parseSsdpHeaders(response: String): Map<String, String> =
+        response.lineSequence()
+            .mapNotNull { line ->
+                val separator = line.indexOf(':')
+                if (separator <= 0) {
+                    null
+                } else {
+                    line.substring(0, separator).trim().lowercase() to line.substring(separator + 1).trim()
+                }
+            }
+            .toMap()
+
+    private fun classifySsdp(headers: Map<String, String>, ip: String): SsdpIdentity? {
+        val signature = buildString {
+            append(headers["st"].orEmpty()).append(' ')
+            append(headers["server"].orEmpty()).append(' ')
+            append(headers["usn"].orEmpty()).append(' ')
+            append(headers["location"].orEmpty())
+        }.lowercase()
+
+        return when {
+            signature.contains("lge") || signature.contains("webos") || signature.contains("udap") -> {
+                SsdpIdentity(
+                    ip = ip,
+                    deviceType = "lg",
+                    location = headers["location"],
+                    udn = extractUdn(headers["usn"]),
+                    name = headers["friendlyname"]
+                )
+            }
+
+            signature.contains("tivo") || signature.contains("vestel") -> {
+                SsdpIdentity(
+                    ip = ip,
+                    deviceType = "tivo",
+                    location = headers["location"],
+                    udn = extractUdn(headers["usn"]),
+                    name = headers["friendlyname"]
+                )
+            }
+
+            else -> null
+        }
+    }
+
+    private fun enrichSsdpIdentity(identity: SsdpIdentity): SsdpIdentity {
+        val location = identity.location ?: return identity
+        val description = fetchDeviceDescription(location) ?: return identity
+        val friendlyName = readXmlTag(description, "friendlyName")
+        val manufacturer = readXmlTag(description, "manufacturer")
+        val modelName = readXmlTag(description, "modelName")
+            ?: readXmlTag(description, "modelNumber")
+            ?: readXmlTag(description, "modelDescription")
+        val udn = readXmlTag(description, "UDN") ?: identity.udn
+        val normalizedManufacturer = manufacturer.orEmpty().lowercase()
+        val normalizedText = listOf(friendlyName, manufacturer, modelName, description).joinToString(" ").lowercase()
+        val detectedType = when {
+            normalizedManufacturer.contains("lg") || normalizedText.contains("webos") -> "lg"
+            normalizedManufacturer.contains("vestel") || normalizedText.contains("tivo") -> "tivo"
+            else -> identity.deviceType
+        }
+
+        return identity.copy(
+            deviceType = detectedType,
+            name = friendlyName ?: identity.name,
+            modelName = modelName ?: identity.modelName,
+            udn = udn
+        )
+    }
+
+    private fun fetchDeviceDescription(location: String): String? {
+        return runCatching {
+            val connection = URL(location).openConnection() as HttpURLConnection
+            connection.connectTimeout = 1000
+            connection.readTimeout = 1500
+            connection.requestMethod = "GET"
+            connection.inputStream.bufferedReader().use { it.readText() }
+        }.getOrNull()
+    }
+
+    private fun readXmlTag(xml: String, tag: String): String? {
+        val regex = Regex("<$tag>(.*?)</$tag>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        return regex.find(xml)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun extractIpFromLocation(location: String?): String? {
+        if (location.isNullOrBlank()) return null
+        return runCatching { URL(location).host }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun extractUdn(usn: String?): String? =
+        usn?.substringBefore("::")?.takeIf { it.isNotBlank() }
+
+    private fun mergeSsdpIdentity(existing: SsdpIdentity?, incoming: SsdpIdentity): SsdpIdentity {
+        if (existing == null) return incoming
+        return existing.copy(
+            deviceType = if (existing.deviceType == "samsung") incoming.deviceType else existing.deviceType,
+            location = existing.location ?: incoming.location,
+            udn = existing.udn ?: incoming.udn,
+            name = existing.name ?: incoming.name,
+            modelName = existing.modelName ?: incoming.modelName
+        )
+    }
+
     private fun isPortOpen(ip: String, port: Int): Boolean {
         return try {
             Socket().use { socket ->
@@ -736,6 +925,14 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
     )
 
     private data class LgResult(val port: Int, val payload: JSONObject?)
+    private data class SsdpIdentity(
+        val ip: String,
+        val deviceType: String,
+        val location: String? = null,
+        val udn: String? = null,
+        val name: String? = null,
+        val modelName: String? = null
+    )
 
     companion object {
         private val insecureTrustManager = object : X509TrustManager {

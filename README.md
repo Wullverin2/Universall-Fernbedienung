@@ -36,12 +36,16 @@ Samsung ist aktuell der am besten ausgebaute Modus.
 
 LG wird lokal angesprochen. Je nach Gerät kann beim ersten Zugriff ein Pairing-Dialog am TV erscheinen.
 
+- Scanner erkennt LG jetzt nicht nur über offene Ports, sondern zusätzlich über SSDP/UPnP-Geräteantworten
+- dadurch werden Name und Modell häufiger sauberer erkannt
+
 ### Nabo / Vestel mit TiVo
 
 Dieser Modus ist aktuell experimentell.
 
 - Grundlegende Tasten haben die besten Chancen
 - Quellen, Apps und Spezialfunktionen können je nach Gerät abweichen oder nicht reagieren
+- Scanner sucht zusätzlich nach TiVo-/Vestel-Hinweisen über SSDP/UPnP und verwendet diese für die Geräteerkennung
 
 ## Build
 
