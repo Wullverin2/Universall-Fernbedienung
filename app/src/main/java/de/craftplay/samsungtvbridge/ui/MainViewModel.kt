@@ -12,7 +12,7 @@ import java.time.format.DateTimeFormatter
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val store = DirectTvStore(application.getSharedPreferences("universal_remote", 0))
-    private val client = SamsungDirectTvClient(store)
+    private val client = SamsungDirectTvClient(application.applicationContext, store)
     private val clockFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
 
     var uiState = androidx.compose.runtime.mutableStateOf(

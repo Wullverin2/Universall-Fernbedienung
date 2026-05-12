@@ -38,6 +38,8 @@ LG wird lokal angesprochen. Je nach Gerät kann beim ersten Zugriff ein Pairing-
 
 - Scanner erkennt LG jetzt nicht nur über offene Ports, sondern zusätzlich über SSDP/UPnP-Geräteantworten
 - dadurch werden Name und Modell häufiger sauberer erkannt
+- Scanner berücksichtigt jetzt mehrere lokale IPv4-Subnetze statt nur eines einzelnen Präfixes
+- auf Android wird für SSDP ein Multicast-Lock verwendet, damit Geräteantworten im WLAN zuverlässiger ankommen
 
 ### Nabo / Vestel mit TiVo
 
@@ -46,6 +48,7 @@ Dieser Modus ist aktuell experimentell.
 - Grundlegende Tasten haben die besten Chancen
 - Quellen, Apps und Spezialfunktionen können je nach Gerät abweichen oder nicht reagieren
 - Scanner sucht zusätzlich nach TiVo-/Vestel-Hinweisen über SSDP/UPnP und verwendet diese für die Geräteerkennung
+- auch hier profitiert der Scan von mehreren lokalen Präfixen und aktivem Multicast-Empfang
 
 ## Build
 

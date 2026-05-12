@@ -1,5 +1,7 @@
 package de.craftplay.samsungtvbridge.data
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import de.craftplay.samsungtvbridge.model.ActionResponse
 import de.craftplay.samsungtvbridge.model.AppEntry
 import de.craftplay.samsungtvbridge.model.DeviceEntry
@@ -54,7 +56,10 @@ import javax.net.ssl.X509TrustManager
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class SamsungDirectTvClient(private val store: DirectTvStore) {
+class SamsungDirectTvClient(
+    private val appContext: Context,
+    private val store: DirectTvStore
+) {
     private val standardHttpClient = OkHttpClient.Builder()
         .connectTimeout(800, TimeUnit.MILLISECONDS)
         .readTimeout(1800, TimeUnit.MILLISECONDS)
@@ -87,10 +92,16 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
     }
 
     suspend fun scanDevices(): Pair<DeviceRegistryResponse, DeviceScanSummary> = coroutineScope {
-        val prefix = inferSubnetPrefix() ?: throw IllegalStateException("Kein lokales IPv4-Heimnetz erkannt.")
-        val localIp = inferLocalIpv4()
+        val prefixes = inferSubnetPrefixes()
+        if (prefixes.isEmpty()) {
+            throw IllegalStateException("Kein lokales IPv4-Heimnetz erkannt.")
+        }
+        val localIps = inferLocalIpv4Addresses().toSet()
         val semaphore = Semaphore(32)
-        val addresses = (1..254).map { "$prefix.$it" }.filterNot { it == localIp }
+        val addresses = prefixes
+            .flatMap { prefix -> (1..254).map { "$prefix.$it" } }
+            .distinct()
+            .filterNot { it in localIps }
         val now = Instant.now().toString()
         val ssdpHints = discoverSsdpDevices()
 
@@ -273,43 +284,55 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
         val found = linkedMapOf<String, SsdpIdentity>()
         val multicastAddress = InetAddress.getByName("239.255.255.250")
 
-        searchTargets.forEach { target ->
-            runCatching {
-                DatagramSocket().use { socket ->
-                    socket.broadcast = true
-                    socket.soTimeout = 500
-                    val payload = buildString {
-                        append("M-SEARCH * HTTP/1.1\r\n")
-                        append("HOST: 239.255.255.250:1900\r\n")
-                        append("MAN: \"ssdp:discover\"\r\n")
-                        append("MX: 1\r\n")
-                        append("ST: $target\r\n")
-                        append("\r\n")
-                    }.toByteArray()
+        val wifiManager = appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val multicastLock = wifiManager?.createMulticastLock("universal-remote-ssdp")?.apply {
+            setReferenceCounted(false)
+            acquire()
+        }
 
-                    repeat(2) {
-                        socket.send(DatagramPacket(payload, payload.size, multicastAddress, 1900))
-                    }
+        try {
+            searchTargets.forEach { target ->
+                runCatching {
+                    DatagramSocket().use { socket ->
+                        socket.broadcast = true
+                        socket.soTimeout = 500
+                        val payload = buildString {
+                            append("M-SEARCH * HTTP/1.1\r\n")
+                            append("HOST: 239.255.255.250:1900\r\n")
+                            append("MAN: \"ssdp:discover\"\r\n")
+                            append("MX: 1\r\n")
+                            append("ST: $target\r\n")
+                            append("\r\n")
+                        }.toByteArray()
 
-                    val deadline = System.currentTimeMillis() + 1400
-                    while (System.currentTimeMillis() < deadline) {
-                        val buffer = ByteArray(4096)
-                        val packet = DatagramPacket(buffer, buffer.size)
-                        try {
-                            socket.receive(packet)
-                            val response = String(packet.data, 0, packet.length)
-                            val headers = parseSsdpHeaders(response)
-                            val location = headers["location"]
-                            val ip = extractIpFromLocation(location) ?: packet.address?.hostAddress ?: continue
-                            classifySsdp(headers, ip)?.let { identity ->
-                                val enriched = enrichSsdpIdentity(identity)
-                                found[ip] = mergeSsdpIdentity(found[ip], enriched)
+                        repeat(2) {
+                            socket.send(DatagramPacket(payload, payload.size, multicastAddress, 1900))
+                        }
+
+                        val deadline = System.currentTimeMillis() + 1400
+                        while (System.currentTimeMillis() < deadline) {
+                            val buffer = ByteArray(4096)
+                            val packet = DatagramPacket(buffer, buffer.size)
+                            try {
+                                socket.receive(packet)
+                                val response = String(packet.data, 0, packet.length)
+                                val headers = parseSsdpHeaders(response)
+                                val location = headers["location"]
+                                val ip = extractIpFromLocation(location) ?: packet.address?.hostAddress ?: continue
+                                classifySsdp(headers, ip)?.let { identity ->
+                                    val enriched = enrichSsdpIdentity(identity)
+                                    found[ip] = mergeSsdpIdentity(found[ip], enriched)
+                                }
+                            } catch (_: SocketTimeoutException) {
+                                break
                             }
-                        } catch (_: SocketTimeoutException) {
-                            break
                         }
                     }
                 }
+            }
+        } finally {
+            if (multicastLock?.isHeld == true) {
+                multicastLock.release()
             }
         }
         found
@@ -872,18 +895,48 @@ class SamsungDirectTvClient(private val store: DirectTvStore) {
         }
     }
 
-    private fun inferLocalIpv4(): String? {
-        return NetworkInterface.getNetworkInterfaces().toList()
+    private fun inferLocalIpv4(): String? = inferLocalIpv4Addresses().firstOrNull()
+
+    private fun inferLocalIpv4Addresses(): List<String> {
+        val addresses = linkedSetOf<String>()
+        inferWifiIpv4Address()?.let { addresses.add(it) }
+        NetworkInterface.getNetworkInterfaces().toList()
+            .filter { runCatching { it.isUp && !it.isLoopback }.getOrDefault(false) }
             .flatMap { it.inetAddresses.toList() }
             .filterIsInstance<Inet4Address>()
-            .firstOrNull { !it.isLoopbackAddress && it.isSiteLocalAddress }
-            ?.hostAddress
+            .filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
+            .mapNotNull { it.hostAddress }
+            .forEach { addresses.add(it) }
+        return addresses.toList()
     }
 
-    private fun inferSubnetPrefix(): String? {
-        val address = inferLocalIpv4() ?: return null
-        return address.substringBeforeLast('.', "")
-            .takeIf { it.count { char -> char == '.' } == 2 }
+    private fun inferWifiIpv4Address(): String? {
+        val wifiManager = appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return null
+        val dhcpInfo = wifiManager.dhcpInfo ?: return null
+        if (dhcpInfo.ipAddress == 0) return null
+        return intToIpv4(dhcpInfo.ipAddress)
+    }
+
+    private fun inferSubnetPrefix(): String? = inferSubnetPrefixes().firstOrNull()
+
+    private fun inferSubnetPrefixes(): List<String> {
+        val prefixes = linkedSetOf<String>()
+        inferLocalIpv4Addresses().forEach { address ->
+            address.substringBeforeLast('.', "")
+                .takeIf { it.count { char -> char == '.' } == 2 }
+                ?.let { prefixes.add(it) }
+        }
+        return prefixes.toList()
+    }
+
+    private fun intToIpv4(value: Int): String {
+        val octets = listOf(
+            value and 0xFF,
+            value shr 8 and 0xFF,
+            value shr 16 and 0xFF,
+            value shr 24 and 0xFF
+        )
+        return octets.joinToString(".")
     }
 
     private fun resolveSource(deviceType: String, name: String): SourceEntry {
