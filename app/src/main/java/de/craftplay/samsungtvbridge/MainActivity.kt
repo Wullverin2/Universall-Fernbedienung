@@ -336,6 +336,12 @@ private fun DevicesCard(
                                 Text(device.modelName ?: "Modell unbekannt")
                             }
                             Text("IP: ${device.ip}")
+                            device.firmwareVersion?.let { Text("Firmware: $it") }
+                            device.sdkVersion?.let { Text("webOS SDK: $it") }
+                            device.networkType?.let { Text("Netzwerk: $it") }
+                            device.wakeOnWirelessLan?.let { enabled ->
+                                Text("Wake-on-WiFi: ${if (enabled) "aktiv" else "nicht aktiv"}")
+                            }
                             Text(device.mac ?: "MAC unbekannt")
                         }
                     }

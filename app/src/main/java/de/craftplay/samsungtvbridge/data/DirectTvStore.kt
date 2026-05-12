@@ -32,6 +32,13 @@ class DirectTvStore(private val prefs: SharedPreferences) {
         discovered.forEach { device ->
             val existing = existingById[device.id]
             existingById[device.id] = device.copy(
+                modelName = device.modelName ?: existing?.modelName,
+                firmwareVersion = device.firmwareVersion ?: existing?.firmwareVersion,
+                sdkVersion = device.sdkVersion ?: existing?.sdkVersion,
+                mac = device.mac ?: existing?.mac,
+                duid = device.duid ?: existing?.duid,
+                networkType = device.networkType ?: existing?.networkType,
+                wakeOnWirelessLan = device.wakeOnWirelessLan ?: existing?.wakeOnWirelessLan,
                 firstSeenAt = existing?.firstSeenAt ?: device.firstSeenAt.ifBlank { now },
                 lastSeenAt = now,
                 missing = false
@@ -57,6 +64,20 @@ class DirectTvStore(private val prefs: SharedPreferences) {
             ?: throw IllegalStateException("TV-Gerät nicht gefunden.")
         prefs.edit().putString(KEY_ACTIVE_DEVICE_ID, deviceId).apply()
         return selected
+    }
+
+    fun updateDevice(device: DeviceEntry): DeviceRegistryResponse {
+        val registry = getRegistry()
+        val nextDevices = registry.devices.map { existing ->
+            if (existing.id == device.id) {
+                device.copy(firstSeenAt = existing.firstSeenAt.ifBlank { device.firstSeenAt })
+            } else {
+                existing
+            }
+        }
+        val nextRegistry = registry.copy(devices = nextDevices.sortedBy { it.name.lowercase() })
+        saveRegistry(nextRegistry)
+        return nextRegistry
     }
 
     fun removeDevice(deviceId: String): DeviceRegistryResponse {

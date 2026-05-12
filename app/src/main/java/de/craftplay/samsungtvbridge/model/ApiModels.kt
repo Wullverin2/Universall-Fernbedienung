@@ -36,9 +36,12 @@ data class DeviceEntry(
     val name: String,
     val deviceType: String = "samsung",
     val modelName: String? = null,
+    val firmwareVersion: String? = null,
+    val sdkVersion: String? = null,
     val mac: String? = null,
     val duid: String? = null,
     val networkType: String? = null,
+    val wakeOnWirelessLan: Boolean? = null,
     val firstSeenAt: String,
     val lastSeenAt: String,
     val missing: Boolean = false

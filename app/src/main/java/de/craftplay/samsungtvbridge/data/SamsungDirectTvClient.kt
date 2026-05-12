@@ -26,6 +26,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -121,6 +122,14 @@ class SamsungDirectTvClient(
 
     fun removeDevice(deviceId: String): DeviceRegistryResponse = store.removeDevice(deviceId)
 
+    suspend fun refreshActiveDeviceProfile(): DeviceEntry? {
+        val device = store.getActiveDevice() ?: return null
+        return when (device.deviceType.lowercase()) {
+            "lg" -> refreshLgDeviceProfile(device)
+            else -> device
+        }
+    }
+
     suspend fun powerOn(): ActionResponse = withSelectedDevice { device ->
         val mac = device.mac?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("Für dieses Gerät ist keine MAC-Adresse bekannt. Bitte zuerst scannen.")
@@ -199,7 +208,11 @@ class SamsungDirectTvClient(
             .put("online", diagnostics.online)
             .put("port", diagnostics.port ?: JSONObject.NULL)
             .put("modelName", device.modelName ?: JSONObject.NULL)
+            .put("firmwareVersion", device.firmwareVersion ?: JSONObject.NULL)
+            .put("sdkVersion", device.sdkVersion ?: JSONObject.NULL)
             .put("mac", device.mac ?: JSONObject.NULL)
+            .put("networkType", device.networkType ?: JSONObject.NULL)
+            .put("wakeOnWirelessLan", device.wakeOnWirelessLan ?: JSONObject.NULL)
             .toString(2)
     }
 
@@ -513,6 +526,59 @@ class SamsungDirectTvClient(
     private suspend fun lgTurnOff(device: DeviceEntry): Int {
         val session = lgRequest(device, "ssap://system/turnOff")
         return session.port
+    }
+
+    private suspend fun refreshLgDeviceProfile(device: DeviceEntry): DeviceEntry {
+        val systemInfo = runCatching {
+            lgRequest(
+                device,
+                "ssap://com.webos.service.tv.systemproperty/getSystemInfo",
+                JSONObject().put(
+                    "keys",
+                    JSONArray(listOf("modelName", "firmwareVersion", "sdkVersion", "boardType", "UHD"))
+                )
+            ).payload
+        }.getOrNull()
+
+        val connectionInfo = runCatching {
+            lgRequest(
+                device,
+                "ssap://com.webos.service.connectionmanager/getStatus",
+                JSONObject().put("subscribe", false)
+            ).payload
+        }.recoverCatching {
+            lgRequest(
+                device,
+                "ssap://com.palm.connectionmanager/getStatus",
+                JSONObject().put("subscribe", false)
+            ).payload
+        }.getOrNull()
+
+        val modelName = systemInfo?.optNonBlankString("modelName") ?: device.modelName
+        val firmwareVersion = systemInfo?.optNonBlankString("firmwareVersion") ?: device.firmwareVersion
+        val sdkVersion = systemInfo?.optNonBlankString("sdkVersion") ?: device.sdkVersion
+        val boardType = systemInfo?.optNonBlankString("boardType")
+        val networkType = detectLgNetworkType(connectionInfo) ?: device.networkType
+        val mac = detectLgMacAddress(connectionInfo) ?: device.mac
+        val wakeOnWirelessLan = detectLgWakeOnWirelessLan(connectionInfo) ?: device.wakeOnWirelessLan
+        val name = if (device.name == "[LG] ${device.ip}" && !modelName.isNullOrBlank()) {
+            "LG $modelName"
+        } else {
+            device.name
+        }
+
+        val updated = device.copy(
+            name = name,
+            modelName = modelName,
+            firmwareVersion = firmwareVersion,
+            sdkVersion = sdkVersion,
+            mac = mac,
+            networkType = networkType ?: boardType,
+            wakeOnWirelessLan = wakeOnWirelessLan,
+            missing = false
+        )
+        store.updateDevice(updated)
+        return updated
     }
 
     private suspend fun lgLaunchApp(device: DeviceEntry, app: AppEntry) {
@@ -852,6 +918,98 @@ class SamsungDirectTvClient(
             modelName = existing.modelName ?: incoming.modelName
         )
     }
+
+    private fun JSONObject.optNonBlankString(key: String): String? =
+        optString(key).trim().takeIf { it.isNotBlank() && it != "null" }
+
+    private fun detectLgNetworkType(connectionInfo: JSONObject?): String? {
+        if (connectionInfo == null) return null
+        val wifi = connectionInfo.optJSONObject("wifi")
+        val wired = connectionInfo.optJSONObject("wired") ?: connectionInfo.optJSONObject("ethernet")
+        return when {
+            wifi?.toString()?.lowercase()?.contains("connected") == true -> "wireless"
+            wifi?.optNonBlankString("onInternet") == "yes" -> "wireless"
+            wired?.toString()?.lowercase()?.contains("connected") == true -> "wired"
+            wired?.optNonBlankString("onInternet") == "yes" -> "wired"
+            else -> null
+        }
+    }
+
+    private fun detectLgWakeOnWirelessLan(connectionInfo: JSONObject?): Boolean? {
+        if (connectionInfo == null) return null
+        return findBooleanValue(
+            connectionInfo,
+            setOf("isWakeOnWiFiEnabled", "wakeOnWifi", "wakeOnWiFi", "wakeOnWirelessLan")
+        )
+    }
+
+    private fun detectLgMacAddress(connectionInfo: JSONObject?): String? {
+        if (connectionInfo == null) return null
+        val explicit = findStringValue(
+            connectionInfo,
+            setOf("mac", "macAddress", "wifiMac", "wiredMac", "wiredMacAddress", "wifiMacAddress")
+        )
+        return explicit?.takeIf { looksLikeMacAddress(it) } ?: findFirstMacAddress(connectionInfo)
+    }
+
+    private fun findStringValue(json: JSONObject, keys: Set<String>): String? {
+        val names = json.keys()
+        while (names.hasNext()) {
+            val key = names.next()
+            val value = json.opt(key)
+            if (keys.any { it.equals(key, ignoreCase = true) }) {
+                val text = value?.toString()?.trim()
+                if (!text.isNullOrBlank() && text != "null") return text
+            }
+            when (value) {
+                is JSONObject -> findStringValue(value, keys)?.let { return it }
+                is JSONArray -> {
+                    for (index in 0 until value.length()) {
+                        (value.opt(index) as? JSONObject)?.let { nested ->
+                            findStringValue(nested, keys)?.let { return it }
+                        }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun findBooleanValue(json: JSONObject, keys: Set<String>): Boolean? {
+        val names = json.keys()
+        while (names.hasNext()) {
+            val key = names.next()
+            val value = json.opt(key)
+            if (keys.any { it.equals(key, ignoreCase = true) }) {
+                when (value) {
+                    is Boolean -> return value
+                    is String -> value.trim().lowercase().let {
+                        if (it == "true" || it == "yes" || it == "1") return true
+                        if (it == "false" || it == "no" || it == "0") return false
+                    }
+                }
+            }
+            when (value) {
+                is JSONObject -> findBooleanValue(value, keys)?.let { return it }
+                is JSONArray -> {
+                    for (index in 0 until value.length()) {
+                        (value.opt(index) as? JSONObject)?.let { nested ->
+                            findBooleanValue(nested, keys)?.let { return it }
+                        }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun findFirstMacAddress(json: JSONObject): String? {
+        val macRegex = Regex("(?i)\\b[0-9a-f]{2}([:-][0-9a-f]{2}){5}\\b")
+        return macRegex.find(json.toString())?.value?.uppercase()?.replace("-", ":")
+    }
+
+    private fun looksLikeMacAddress(value: String): Boolean =
+        value.matches(Regex("(?i)^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$"))
 
     private fun isPortOpen(ip: String, port: Int): Boolean {
         return try {

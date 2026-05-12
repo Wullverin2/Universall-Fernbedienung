@@ -40,6 +40,7 @@ LG wird lokal angesprochen. Je nach Gerät kann beim ersten Zugriff ein Pairing-
 - dadurch werden Name und Modell häufiger sauberer erkannt
 - Scanner berücksichtigt jetzt mehrere lokale IPv4-Subnetze statt nur eines einzelnen Präfixes
 - auf Android wird für SSDP ein Multicast-Lock verwendet, damit Geräteantworten im WLAN zuverlässiger ankommen
+- nach dem Verbinden fragt die App per webOS/SSAP echte Geräteinfos ab und speichert Modell, Firmware, webOS-SDK, Netzwerktyp und Wake-on-WiFi-Hinweis im Geräteprofil
 
 ### Nabo / Vestel mit TiVo
 

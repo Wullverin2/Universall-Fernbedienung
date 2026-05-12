@@ -27,13 +27,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun connectSelectedTv() {
         execute("Verbindung zum TV wird aufgebaut...") {
             val status = client.getStatus()
+            val profile = runCatching { client.refreshActiveDeviceProfile() }
+                .onSuccess { device ->
+                    if (device?.deviceType == "lg") {
+                        val details = listOfNotNull(device.modelName, device.sdkVersion?.let { "webOS SDK $it" })
+                            .joinToString(" | ")
+                            .ifBlank { device.name }
+                        appendLog("LG-Profil aktualisiert: $details")
+                    }
+                }
+                .onFailure { error ->
+                    appendLog("Profil konnte nicht aktualisiert werden: ${error.message}", true)
+                }
+                .getOrNull()
+            val nextStatus = if (profile != null && profile.ip == status.tvIp) {
+                status.copy(name = profile.name)
+            } else {
+                status
+            }
             uiState.value = uiState.value.copy(
-                status = status,
+                status = nextStatus,
                 devices = client.getRegistry(),
                 sources = listSourcesForActiveDevice(),
                 apps = listAppsForActiveDevice()
             )
-            appendLog("Verbunden mit ${status.name}.")
+            appendLog("Verbunden mit ${nextStatus.name}.")
         }
     }
 
