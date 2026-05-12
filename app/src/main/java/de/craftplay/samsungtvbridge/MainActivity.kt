@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,14 +21,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -199,6 +203,7 @@ private fun StatusCard(state: MainUiState, onRefreshStatus: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DevicesCard(
     devices: List<DeviceEntry>,
@@ -208,6 +213,10 @@ private fun DevicesCard(
     onSelectDevice: (String, String) -> Unit,
     onRemoveDevice: (String, String) -> Unit
 ) {
+    var expanded by remember(devices, activeDeviceId) { mutableStateOf(false) }
+    var pendingDeviceId by remember(devices, activeDeviceId) { mutableStateOf(activeDeviceId ?: devices.firstOrNull()?.id) }
+    val selectedDevice = devices.firstOrNull { it.id == pendingDeviceId }
+
     SectionCard(title = "TV-Geräte") {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = onScanDevices, modifier = Modifier.weight(1f)) { Text("Scannen") }
@@ -218,29 +227,116 @@ private fun DevicesCard(
             Text("Noch keine TVs gespeichert.")
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                devices.forEach { device ->
-                    Card(shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(device.name, fontWeight = FontWeight.Bold)
-                            Text("${deviceTypeLabel(device.deviceType)} | ${device.modelName ?: "Modell unbekannt"} | ${device.ip}")
-                            Text(device.mac ?: "MAC unbekannt")
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val isActive = activeDeviceId == device.id
-                                Button(
-                                    onClick = { onSelectDevice(device.id, device.name) },
-                                    enabled = !isActive,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(if (isActive) "Aktiv" else "Nutzen")
-                                }
-                                OutlinedButton(
-                                    onClick = { onRemoveDevice(device.id, device.name) },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Entfernen")
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedDevice?.let { device ->
+                            buildString {
+                                append(device.name)
+                                if (device.id == activeDeviceId) {
+                                    append(" • Aktiv")
                                 }
                             }
+                        } ?: "Bitte Gerät wählen",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Erkannte Geräte") },
+                        supportingText = {
+                            selectedDevice?.let { device ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    DeviceTypeBadge(device.deviceType)
+                                    DevicePresenceBadge(device.missing)
+                                }
+                            }
+                        },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        devices.forEach { device ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                buildString {
+                                                    append(device.name)
+                                                    if (device.id == activeDeviceId) {
+                                                        append(" • Aktiv")
+                                                    }
+                                                },
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            DevicePresenceBadge(device.missing)
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            DeviceTypeBadge(device.deviceType)
+                                            Text(
+                                                "${device.modelName ?: "Modell unbekannt"} | ${device.ip}",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    pendingDeviceId = device.id
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            selectedDevice?.let { onSelectDevice(it.id, it.name) }
+                        },
+                        enabled = selectedDevice != null && selectedDevice.id != activeDeviceId,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (selectedDevice?.id == activeDeviceId) "Aktiv" else "Auswahl bestätigen")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            selectedDevice?.let { onRemoveDevice(it.id, it.name) }
+                        },
+                        enabled = selectedDevice != null,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Entfernen")
+                    }
+                }
+
+                selectedDevice?.let { device ->
+                    Card(shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(device.name, fontWeight = FontWeight.Bold)
+                                DevicePresenceBadge(device.missing)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                DeviceTypeBadge(device.deviceType)
+                                Text(device.modelName ?: "Modell unbekannt")
+                            }
+                            Text("IP: ${device.ip}")
+                            Text(device.mac ?: "MAC unbekannt")
                         }
                     }
                 }
@@ -449,6 +545,42 @@ private fun MiniRemoteButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
+private fun DeviceTypeBadge(type: String) {
+    val (label, backgroundColor, borderColor) = when (type.lowercase()) {
+        "lg" -> Triple("LG webOS", Color(0xFF1E3A2B), Color(0xFF4CAF7B))
+        "tivo" -> Triple("TiVo / Vestel", Color(0xFF2C2145), Color(0xFF9B7BFF))
+        else -> Triple("Samsung", Color(0xFF1D2D45), Color(0xFF77A8FF))
+    }
+
+    Box(
+        modifier = Modifier
+            .background(backgroundColor, RoundedCornerShape(999.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = Color.White)
+    }
+}
+
+@Composable
+private fun DevicePresenceBadge(missing: Boolean) {
+    val (label, backgroundColor, borderColor) = if (missing) {
+        Triple("Zuletzt nicht gefunden", Color(0xFF402020), Color(0xFFE57373))
+    } else {
+        Triple("Beim letzten Scan gefunden", Color(0xFF17311D), Color(0xFF7AD79B))
+    }
+
+    Box(
+        modifier = Modifier
+            .background(backgroundColor, RoundedCornerShape(999.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = Color.White)
+    }
+}
+
+@Composable
 private fun CircleRemoteButton(label: String, onClick: () -> Unit, filled: Boolean, small: Boolean = false) {
     val size = if (small) 72.dp else 74.dp
     if (filled) {
@@ -480,10 +612,4 @@ private fun CircleRemoteButton(label: String, onClick: () -> Unit, filled: Boole
             )
         }
     }
-}
-
-private fun deviceTypeLabel(type: String): String = when (type.lowercase()) {
-    "lg" -> "LG webOS"
-    "tivo" -> "TiVo / Vestel"
-    else -> "Samsung"
 }
