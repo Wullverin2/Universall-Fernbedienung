@@ -554,7 +554,7 @@ private fun MiniRemoteButton(label: String, onClick: () -> Unit) {
 private fun DeviceTypeBadge(type: String) {
     val (label, backgroundColor, borderColor) = when (type.lowercase()) {
         "lg" -> Triple("LG webOS", Color(0xFF1E3A2B), Color(0xFF4CAF7B))
-        "tivo" -> Triple("TiVo / Vestel", Color(0xFF2C2145), Color(0xFF9B7BFF))
+        "tivo", "vestel" -> Triple("Nabo / Vestel", Color(0xFF2C2145), Color(0xFF9B7BFF))
         else -> Triple("Samsung", Color(0xFF1D2D45), Color(0xFF77A8FF))
     }
 

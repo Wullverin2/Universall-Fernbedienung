@@ -80,7 +80,7 @@ class SamsungDirectTvClient(
 
         val status = when (device.deviceType.lowercase()) {
             "lg" -> probeLgStatus(device)
-            "tivo" -> probeTivoStatus(device)
+            "tivo", "vestel" -> probeVestelStatus(device)
             else -> probeSamsungStatus(device)
         }
 
@@ -99,12 +99,13 @@ class SamsungDirectTvClient(
         }
         val localIps = inferLocalIpv4Addresses().toSet()
         val semaphore = Semaphore(32)
+        val ssdpHints = discoverSsdpDevices()
         val addresses = prefixes
             .flatMap { prefix -> (1..254).map { "$prefix.$it" } }
+            .plus(ssdpHints.keys)
             .distinct()
             .filterNot { it in localIps }
         val now = Instant.now().toString()
-        val ssdpHints = discoverSsdpDevices()
 
         val found = addresses.map { ip ->
             async(Dispatchers.IO) {
@@ -140,10 +141,7 @@ class SamsungDirectTvClient(
     suspend fun powerOff(): ActionResponse = withSelectedDevice { device ->
         val port = when (device.deviceType.lowercase()) {
             "lg" -> lgTurnOff(device)
-            "tivo" -> {
-                sendTivoCode(device, "POWER")
-                31339
-            }
+            "tivo", "vestel" -> sendVestelRemoteKey(device, "KEY_POWER")
             else -> samsungPowerOff(device)
         }
         ActionResponse(message = "Ausschalten gesendet.", port = port)
@@ -152,10 +150,7 @@ class SamsungDirectTvClient(
     suspend fun sendRemoteKey(key: String): ActionResponse = withSelectedDevice { device ->
         val port = when (device.deviceType.lowercase()) {
             "lg" -> lgSendKey(device, key)
-            "tivo" -> {
-                sendTivoCode(device, mapTivoKey(key))
-                31339
-            }
+            "tivo", "vestel" -> sendVestelRemoteKey(device, key)
             else -> samsungSendKey(device, key)
         }
         ActionResponse(message = "Taste gesendet.", key = key, port = port)
@@ -172,7 +167,10 @@ class SamsungDirectTvClient(
                     throw IllegalStateException("Quelle für LG derzeit nicht unterstützt.")
                 }
             }
-            "tivo" -> throw IllegalStateException("Quellenwechsel für TiVo/Vestel ist noch experimentell nicht verfügbar.")
+            "tivo", "vestel" -> {
+                val source = resolveSource(device.deviceType, name)
+                sendVestelRemoteKey(device, source.keys.first())
+            }
             else -> samsungSetSource(device, name)
         }
         ActionResponse(message = "Quelle gewechselt: $name", source = name)
@@ -182,7 +180,7 @@ class SamsungDirectTvClient(
         val app = resolveApp(device.deviceType, name)
         when (device.deviceType.lowercase()) {
             "lg" -> lgLaunchApp(device, app)
-            "tivo" -> throw IllegalStateException("App-Start für TiVo/Vestel ist lokal noch nicht belastbar verfügbar.")
+            "tivo", "vestel" -> vestelLaunchApp(device, app)
             else -> samsungLaunchApp(device, app)
         }
         ActionResponse(message = "App gestartet: ${app.name}", app = app.name, appId = app.appId)
@@ -197,7 +195,7 @@ class SamsungDirectTvClient(
 
         val diagnostics = when (device.deviceType.lowercase()) {
             "lg" -> probeLgStatus(device)
-            "tivo" -> probeTivoStatus(device)
+            "tivo", "vestel" -> probeVestelStatus(device)
             else -> probeSamsungStatus(device)
         }
 
@@ -246,12 +244,12 @@ class SamsungDirectTvClient(
             )
         }
 
-        if (ssdpHint?.deviceType == "tivo") {
+        if (ssdpHint?.deviceType == "vestel" || ssdpHint?.deviceType == "tivo") {
             return DeviceEntry(
-                id = ssdpHint.udn ?: "tivo:$ip",
+                id = ssdpHint.udn ?: "vestel:$ip",
                 ip = ip,
-                name = ssdpHint.name ?: "[TiVo] $ip",
-                deviceType = "tivo",
+                name = ssdpHint.name ?: "[Nabo/Vestel] $ip",
+                deviceType = "vestel",
                 modelName = ssdpHint.modelName,
                 duid = ssdpHint.udn,
                 firstSeenAt = now,
@@ -272,12 +270,25 @@ class SamsungDirectTvClient(
             )
         }
 
+        if (isPortOpen(ip, 7681)) {
+            return DeviceEntry(
+                id = ssdpHint?.udn ?: "vestel:$ip",
+                ip = ip,
+                name = ssdpHint?.name ?: "[Nabo/Vestel] $ip",
+                deviceType = "vestel",
+                modelName = ssdpHint?.modelName,
+                duid = ssdpHint?.udn,
+                firstSeenAt = now,
+                lastSeenAt = now
+            )
+        }
+
         if (isPortOpen(ip, 31339)) {
             return DeviceEntry(
-                id = "tivo:$ip",
+                id = ssdpHint?.udn ?: "vestel:$ip",
                 ip = ip,
-                name = ssdpHint?.name ?: "[TiVo] $ip",
-                deviceType = "tivo",
+                name = ssdpHint?.name ?: "[Nabo/Vestel] $ip",
+                deviceType = "vestel",
                 modelName = ssdpHint?.modelName,
                 duid = ssdpHint?.udn,
                 firstSeenAt = now,
@@ -291,6 +302,7 @@ class SamsungDirectTvClient(
     private suspend fun discoverSsdpDevices(): Map<String, SsdpIdentity> = withContext(Dispatchers.IO) {
         val searchTargets = listOf(
             "urn:lge-com:service:webos-second-screen:1",
+            "urn:dial-multiscreen-org:service:dial:1",
             "urn:schemas-upnp-org:device:MediaRenderer:1",
             "ssdp:all"
         )
@@ -348,7 +360,55 @@ class SamsungDirectTvClient(
                 multicastLock.release()
             }
         }
+        discoverVestelUdpDevices().forEach { (ip, identity) ->
+            found[ip] = mergeSsdpIdentity(found[ip], identity)
+        }
         found
+    }
+
+    private fun discoverVestelUdpDevices(): Map<String, SsdpIdentity> {
+        val found = linkedMapOf<String, SsdpIdentity>()
+        val payload = "vr_query_tv_version_782".toByteArray()
+        DatagramSocket().use { socket ->
+            socket.broadcast = true
+            socket.soTimeout = 450
+
+            broadcastTargets().forEach { target ->
+                runCatching {
+                    val address = InetAddress.getByName(target)
+                    repeat(2) {
+                        socket.send(DatagramPacket(payload, payload.size, address, 4950))
+                    }
+                }
+            }
+
+            val deadline = System.currentTimeMillis() + 1500
+            while (System.currentTimeMillis() < deadline) {
+                val buffer = ByteArray(2048)
+                val packet = DatagramPacket(buffer, buffer.size)
+                try {
+                    socket.receive(packet)
+                    val response = String(packet.data, 0, packet.length).trim()
+                    if (response.contains("WAKEUP", ignoreCase = true)) continue
+                    val normalized = response.lowercase()
+                    if (normalized.contains("vr_tv_query_rsp") || normalized.contains("vr_tv")) {
+                        val ip = packet.address?.hostAddress ?: continue
+                        val name = response
+                            .split(';', '|', ',', ' ')
+                            .firstOrNull { it.contains("tv", ignoreCase = true) || it.contains("vestel", ignoreCase = true) }
+                            ?.takeIf { it.length in 3..60 }
+                        found[ip] = SsdpIdentity(
+                            ip = ip,
+                            deviceType = "vestel",
+                            name = name ?: "[Nabo/Vestel] $ip"
+                        )
+                    }
+                } catch (_: SocketTimeoutException) {
+                    break
+                }
+            }
+        }
+        return found
     }
 
     private suspend fun samsungPowerOff(device: DeviceEntry): Int {
@@ -728,6 +788,226 @@ class SamsungDirectTvClient(
             continuation.invokeOnCancellation { socket.cancel() }
         }
 
+    private suspend fun sendVestelRemoteKey(device: DeviceEntry, key: String): Int {
+        val button = mapVestelButton(key)
+        val codes = listOfNotNull(
+            vestelLegacyKeyCodes[button],
+            vestelAndroidKeyCodes[button],
+            button
+        ).distinct()
+        var lastError: Throwable? = null
+
+        for (code in codes) {
+            val payload = vestelRemotePayload(code)
+            try {
+                vestelPostSmartCenter(device, payload)?.let { return it }
+            } catch (_: Throwable) {
+                Unit
+            }
+
+            try {
+                return vestelSendWebSocket(device, payload)
+            } catch (error: Throwable) {
+                lastError = error
+            }
+        }
+
+        if (isPortOpen(device.ip, 31339)) {
+            try {
+                sendTivoCode(device, mapTivoKey(key))
+                return 31339
+            } catch (error: Throwable) {
+                lastError = error
+            }
+        }
+
+        throw IllegalStateException(lastError?.message ?: "Nabo/Vestel-Taste konnte nicht gesendet werden.")
+    }
+
+    private suspend fun vestelLaunchApp(device: DeviceEntry, app: AppEntry) {
+        val packageName = app.appId?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Für diese Vestel/Nabo-App ist keine App-ID hinterlegt.")
+        val page = app.tizenAppId.orEmpty()
+        val payload = "<?xml version='1.0' ?><openapplication><application packagename='${escapeXml(packageName)}' page='${escapeXml(page)}'/></openapplication>"
+        vestelPostSmartCenter(device, payload)
+            ?: throw IllegalStateException("Vestel/Nabo-App-Start wurde vom TV nicht angenommen.")
+    }
+
+    private suspend fun vestelPostSmartCenter(device: DeviceEntry, payload: String): Int? = withContext(Dispatchers.IO) {
+        val body = payload.toRequestBody("text/xml; charset=UTF-8".toMediaType())
+        for (url in vestelSmartCenterUrls(device.ip)) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .post(body)
+                    .header("application_name", "tv smart centre")
+                    .header("Accept", "text/xml, */*")
+                    .build()
+                standardHttpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        return@withContext defaultPortForUrl(url)
+                    }
+                }
+            } catch (_: Throwable) {
+                Unit
+            }
+        }
+        null
+    }
+
+    private suspend fun vestelSendWebSocket(device: DeviceEntry, payload: String): Int =
+        suspendCancellableCoroutine { continuation ->
+            var resumed = false
+            val request = Request.Builder().url("ws://${device.ip}:7681/").build()
+            val socket = standardHttpClient.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (!webSocket.send(payload)) {
+                        if (!resumed) {
+                            resumed = true
+                            continuation.resumeWithException(IllegalStateException("Vestel-WebSocket hat das Kommando nicht angenommen."))
+                        }
+                        webSocket.close(1000, null)
+                        return
+                    }
+                    webSocket.close(1000, null)
+                    if (!resumed) {
+                        resumed = true
+                        continuation.resume(7681)
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (!resumed) {
+                        resumed = true
+                        continuation.resumeWithException(t)
+                    }
+                }
+            })
+
+            continuation.invokeOnCancellation { socket.cancel() }
+        }
+
+    private fun vestelSmartCenterUrls(ip: String): List<String> {
+        val discovered = discoverVestelAppsUrls(ip)
+            .map { "${ensureTrailingSlash(it)}SmartCenter" }
+        val fallback = listOf(
+            "http://$ip:56789/apps/SmartCenter",
+            "http://$ip/apps/SmartCenter"
+        )
+        return (discovered + fallback).distinct()
+    }
+
+    private fun discoverVestelAppsUrls(ip: String): List<String> {
+        val found = linkedSetOf<String>()
+        val multicastAddress = InetAddress.getByName("239.255.255.250")
+        val payload = buildString {
+            append("M-SEARCH * HTTP/1.1\r\n")
+            append("HOST: 239.255.255.250:1900\r\n")
+            append("MAN: \"ssdp:discover\"\r\n")
+            append("MX: 1\r\n")
+            append("ST: urn:dial-multiscreen-org:service:dial:1\r\n")
+            append("\r\n")
+        }.toByteArray()
+
+        DatagramSocket().use { socket ->
+            socket.soTimeout = 450
+            repeat(2) {
+                socket.send(DatagramPacket(payload, payload.size, multicastAddress, 1900))
+            }
+
+            val deadline = System.currentTimeMillis() + 1200
+            while (System.currentTimeMillis() < deadline) {
+                val buffer = ByteArray(4096)
+                val packet = DatagramPacket(buffer, buffer.size)
+                try {
+                    socket.receive(packet)
+                    if (packet.address?.hostAddress != ip) continue
+                    val response = String(packet.data, 0, packet.length)
+                    val headers = parseSsdpHeaders(response)
+                    headers["application-url"]?.let { found.add(ensureTrailingSlash(it)) }
+                    headers["location"]?.let { location ->
+                        deriveAppsUrlFromLocation(location)?.let { found.add(it) }
+                    }
+                } catch (_: SocketTimeoutException) {
+                    break
+                }
+            }
+        }
+        return found.toList()
+    }
+
+    private fun deriveAppsUrlFromLocation(location: String): String? {
+        return runCatching {
+            val url = URL(location)
+            val port = if (url.port > 0) ":${url.port}" else ""
+            "${url.protocol}://${url.host}$port/apps/"
+        }.getOrNull()
+    }
+
+    private fun ensureTrailingSlash(value: String): String =
+        if (value.endsWith('/')) value else "$value/"
+
+    private fun defaultPortForUrl(url: String): Int {
+        val parsed = URL(url)
+        if (parsed.port > 0) return parsed.port
+        return if (parsed.protocol.equals("https", ignoreCase = true)) 443 else 80
+    }
+
+    private fun escapeXml(value: String): String =
+        value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
+
+    private fun vestelRemotePayload(code: String): String =
+        "<?xml version='1.0' ?><remote><key code='${escapeXml(code)}'/></remote>"
+
+    private fun mapVestelButton(key: String): String = when (key) {
+        "KEY_HOME" -> "BUTTON_HOME"
+        "KEY_POWER", "KEY_POWERON", "KEY_POWEROFF" -> "BUTTON_POWER"
+        "KEY_RETURN", "KEY_PRECH" -> "BUTTON_BACK"
+        "KEY_MENU" -> "BUTTON_MENU"
+        "KEY_UP" -> "BUTTON_UP"
+        "KEY_DOWN" -> "BUTTON_DOWN"
+        "KEY_LEFT" -> "BUTTON_LEFT"
+        "KEY_RIGHT" -> "BUTTON_RIGHT"
+        "KEY_ENTER" -> "BUTTON_OK"
+        "KEY_INFO" -> "BUTTON_INFO"
+        "KEY_VOLUP" -> "BUTTON_VOL_UP"
+        "KEY_VOLDOWN" -> "BUTTON_VOL_DOWN"
+        "KEY_MUTE" -> "BUTTON_MUTE"
+        "KEY_CHUP" -> "BUTTON_PROG_UP"
+        "KEY_CHDOWN" -> "BUTTON_PROG_DOWN"
+        "KEY_GUIDE" -> "BUTTON_EPG"
+        "KEY_SOURCE" -> "BUTTON_SOURCE"
+        "KEY_EXIT" -> "BUTTON_EXIT"
+        "KEY_TV" -> "BUTTON_TV"
+        "KEY_TTX_MIX", "KEY_TEXT" -> "BUTTON_TEXT"
+        "KEY_PLAY" -> "BUTTON_PLAY"
+        "KEY_PAUSE" -> "BUTTON_PAUSE"
+        "KEY_STOP" -> "BUTTON_STOP"
+        "KEY_REWIND" -> "BUTTON_REWIND"
+        "KEY_FF" -> "BUTTON_FORWARD"
+        "KEY_REC" -> "BUTTON_RECORD"
+        "KEY_RED" -> "BUTTON_RED"
+        "KEY_GREEN" -> "BUTTON_GREEN"
+        "KEY_YELLOW" -> "BUTTON_YELLOW"
+        "KEY_BLUE" -> "BUTTON_BLUE"
+        "KEY_0" -> "BUTTON_0"
+        "KEY_1" -> "BUTTON_1"
+        "KEY_2" -> "BUTTON_2"
+        "KEY_3" -> "BUTTON_3"
+        "KEY_4" -> "BUTTON_4"
+        "KEY_5" -> "BUTTON_5"
+        "KEY_6" -> "BUTTON_6"
+        "KEY_7" -> "BUTTON_7"
+        "KEY_8" -> "BUTTON_8"
+        "KEY_9" -> "BUTTON_9"
+        else -> throw IllegalStateException("Nabo/Vestel-Key derzeit nicht unterstützt: $key")
+    }
+
     private suspend fun sendTivoCode(device: DeviceEntry, code: String) = withContext(Dispatchers.IO) {
         Socket(device.ip, 31339).use { socket ->
             socket.soTimeout = 2000
@@ -782,8 +1062,13 @@ class SamsungDirectTvClient(
         }
     }
 
-    private suspend fun probeTivoStatus(device: DeviceEntry): ProbeStatus = withContext(Dispatchers.IO) {
-        if (isPortOpen(device.ip, 31339)) ProbeStatus(true, 31339) else ProbeStatus(false, null)
+    private suspend fun probeVestelStatus(device: DeviceEntry): ProbeStatus = withContext(Dispatchers.IO) {
+        when {
+            isPortOpen(device.ip, 7681) -> ProbeStatus(true, 7681)
+            isPortOpen(device.ip, 56789) -> ProbeStatus(true, 56789)
+            isPortOpen(device.ip, 31339) -> ProbeStatus(true, 31339)
+            else -> ProbeStatus(false, null)
+        }
     }
 
     private suspend fun probeSamsungIdentity(ip: String): SamsungIdentity? = withContext(Dispatchers.IO) {
@@ -832,7 +1117,8 @@ class SamsungDirectTvClient(
             append(headers["st"].orEmpty()).append(' ')
             append(headers["server"].orEmpty()).append(' ')
             append(headers["usn"].orEmpty()).append(' ')
-            append(headers["location"].orEmpty())
+            append(headers["location"].orEmpty()).append(' ')
+            append(headers["application-url"].orEmpty())
         }.lowercase()
 
         return when {
@@ -841,16 +1127,29 @@ class SamsungDirectTvClient(
                     ip = ip,
                     deviceType = "lg",
                     location = headers["location"],
+                    applicationUrl = headers["application-url"],
                     udn = extractUdn(headers["usn"]),
                     name = headers["friendlyname"]
                 )
             }
 
-            signature.contains("tivo") || signature.contains("vestel") -> {
+            isVestelSignature(signature) -> {
                 SsdpIdentity(
                     ip = ip,
-                    deviceType = "tivo",
+                    deviceType = "vestel",
                     location = headers["location"],
+                    applicationUrl = headers["application-url"],
+                    udn = extractUdn(headers["usn"]),
+                    name = headers["friendlyname"]
+                )
+            }
+
+            signature.contains("urn:dial-multiscreen-org:service:dial:1") -> {
+                SsdpIdentity(
+                    ip = ip,
+                    deviceType = "dial",
+                    location = headers["location"],
+                    applicationUrl = headers["application-url"],
                     udn = extractUdn(headers["usn"]),
                     name = headers["friendlyname"]
                 )
@@ -873,7 +1172,7 @@ class SamsungDirectTvClient(
         val normalizedText = listOf(friendlyName, manufacturer, modelName, description).joinToString(" ").lowercase()
         val detectedType = when {
             normalizedManufacturer.contains("lg") || normalizedText.contains("webos") -> "lg"
-            normalizedManufacturer.contains("vestel") || normalizedText.contains("tivo") -> "tivo"
+            isVestelSignature(normalizedText) -> "vestel"
             else -> identity.deviceType
         }
 
@@ -881,7 +1180,8 @@ class SamsungDirectTvClient(
             deviceType = detectedType,
             name = friendlyName ?: identity.name,
             modelName = modelName ?: identity.modelName,
-            udn = udn
+            udn = udn,
+            applicationUrl = identity.applicationUrl
         )
     }
 
@@ -908,11 +1208,32 @@ class SamsungDirectTvClient(
     private fun extractUdn(usn: String?): String? =
         usn?.substringBefore("::")?.takeIf { it.isNotBlank() }
 
+    private fun isVestelSignature(signature: String): Boolean {
+        val normalized = signature.lowercase()
+        return listOf(
+            "vestel",
+            "smartcenter",
+            "smart centre",
+            "nabo",
+            "finlux",
+            "telefunken",
+            "toshiba",
+            "jvc",
+            "hitachi",
+            "techwood",
+            "regal",
+            "mb100",
+            "mb97",
+            "mb90"
+        ).any { normalized.contains(it) }
+    }
+
     private fun mergeSsdpIdentity(existing: SsdpIdentity?, incoming: SsdpIdentity): SsdpIdentity {
         if (existing == null) return incoming
         return existing.copy(
-            deviceType = if (existing.deviceType == "samsung") incoming.deviceType else existing.deviceType,
+            deviceType = if (existing.deviceType == "samsung" || existing.deviceType == "dial") incoming.deviceType else existing.deviceType,
             location = existing.location ?: incoming.location,
+            applicationUrl = existing.applicationUrl ?: incoming.applicationUrl,
             udn = existing.udn ?: incoming.udn,
             name = existing.name ?: incoming.name,
             modelName = existing.modelName ?: incoming.modelName
@@ -1035,15 +1356,10 @@ class SamsungDirectTvClient(
             bytes.copyInto(packet, offset)
         }
 
-        val broadcastTargets = buildSet {
-            add("255.255.255.255")
-            inferSubnetPrefix()?.let { add("$it.255") }
-        }
-
         DatagramSocket().use { socket ->
             socket.broadcast = true
             repeat(3) {
-                broadcastTargets.forEach { target ->
+                broadcastTargets().forEach { target ->
                     val address = InetAddress.getByName(target)
                     val datagram = DatagramPacket(packet, packet.size, address, 9)
                     socket.send(datagram)
@@ -1051,6 +1367,11 @@ class SamsungDirectTvClient(
                 delay(150)
             }
         }
+    }
+
+    private fun broadcastTargets(): Set<String> = buildSet {
+        add("255.255.255.255")
+        inferSubnetPrefixes().forEach { prefix -> add("$prefix.255") }
     }
 
     private fun inferLocalIpv4(): String? = inferLocalIpv4Addresses().firstOrNull()
@@ -1140,12 +1461,118 @@ class SamsungDirectTvClient(
         val ip: String,
         val deviceType: String,
         val location: String? = null,
+        val applicationUrl: String? = null,
         val udn: String? = null,
         val name: String? = null,
         val modelName: String? = null
     )
 
     companion object {
+        private val vestelLegacyKeyCodes = mapOf(
+            "BUTTON_0" to "1000",
+            "BUTTON_1" to "1001",
+            "BUTTON_2" to "1002",
+            "BUTTON_3" to "1003",
+            "BUTTON_4" to "1004",
+            "BUTTON_5" to "1005",
+            "BUTTON_6" to "1006",
+            "BUTTON_7" to "1007",
+            "BUTTON_8" to "1008",
+            "BUTTON_9" to "1009",
+            "BUTTON_BACK" to "1010",
+            "BUTTON_SCREEN" to "1011",
+            "BUTTON_POWER" to "1012",
+            "BUTTON_MUTE" to "1013",
+            "BUTTON_PRESETS" to "1014",
+            "BUTTON_LANG" to "1015",
+            "BUTTON_VOL_UP" to "1016",
+            "BUTTON_VOL_DOWN" to "1017",
+            "BUTTON_INFO" to "1018",
+            "BUTTON_DOWN" to "1019",
+            "BUTTON_UP" to "1020",
+            "BUTTON_LEFT" to "1021",
+            "BUTTON_RIGHT" to "1022",
+            "BUTTON_STOP" to "1024",
+            "BUTTON_PLAY" to "1025",
+            "BUTTON_REWIND" to "1027",
+            "BUTTON_FORWARD" to "1028",
+            "BUTTON_TV" to "1030",
+            "BUTTON_SUBTITLE" to "1031",
+            "BUTTON_PROG_UP" to "1032",
+            "BUTTON_PROG_DOWN" to "1033",
+            "BUTTON_PREVIOUS" to "1034",
+            "BUTTON_SWAP" to "1034",
+            "BUTTON_EXIT" to "1037",
+            "BUTTON_FAV" to "1040",
+            "BUTTON_3D" to "1040",
+            "BUTTON_SLEEP" to "1042",
+            "BUTTON_QMENU" to "1043",
+            "BUTTON_CHAN" to "1045",
+            "BUTTON_HOME" to "1046",
+            "BUTTON_EPG" to "1047",
+            "BUTTON_MENU" to "1048",
+            "BUTTON_PAUSE" to "1049",
+            "BUTTON_YELLOW" to "1050",
+            "BUTTON_RECORD" to "1051",
+            "BUTTON_BLUE" to "1052",
+            "BUTTON_OK" to "1053",
+            "BUTTON_GREEN" to "1054",
+            "BUTTON_RED" to "1055",
+            "BUTTON_SOURCE" to "1056",
+            "BUTTON_MMEDIA" to "1057",
+            "BUTTON_MY_BUTTON" to "1062",
+            "BUTTON_MY_BUTTON_2" to "1063",
+            "BUTTON_TEXT" to "1255"
+        )
+
+        private val vestelAndroidKeyCodes = mapOf(
+            "BUTTON_0" to "7",
+            "BUTTON_1" to "8",
+            "BUTTON_2" to "9",
+            "BUTTON_3" to "10",
+            "BUTTON_4" to "11",
+            "BUTTON_5" to "12",
+            "BUTTON_6" to "13",
+            "BUTTON_7" to "14",
+            "BUTTON_8" to "15",
+            "BUTTON_9" to "16",
+            "BUTTON_HOME" to "3",
+            "BUTTON_BACK" to "4",
+            "BUTTON_POWER" to "26",
+            "BUTTON_MENU" to "82",
+            "BUTTON_UP" to "19",
+            "BUTTON_DOWN" to "20",
+            "BUTTON_LEFT" to "21",
+            "BUTTON_RIGHT" to "22",
+            "BUTTON_OK" to "23",
+            "BUTTON_VOL_UP" to "24",
+            "BUTTON_VOL_DOWN" to "25",
+            "BUTTON_MUTE" to "164",
+            "BUTTON_PROG_UP" to "166",
+            "BUTTON_PROG_DOWN" to "167",
+            "BUTTON_INFO" to "165",
+            "BUTTON_EXIT" to "170",
+            "BUTTON_EPG" to "227",
+            "BUTTON_TEXT" to "233",
+            "BUTTON_SOURCE" to "178",
+            "BUTTON_RECORD" to "130",
+            "BUTTON_PLAY" to "85",
+            "BUTTON_PAUSE" to "85",
+            "BUTTON_STOP" to "86",
+            "BUTTON_PREVIOUS" to "88",
+            "BUTTON_REWIND" to "89",
+            "BUTTON_FORWARD" to "90",
+            "BUTTON_NEXT" to "87",
+            "BUTTON_RED" to "183",
+            "BUTTON_GREEN" to "184",
+            "BUTTON_YELLOW" to "185",
+            "BUTTON_BLUE" to "186",
+            "BUTTON_LANG" to "204",
+            "BUTTON_3D" to "206",
+            "BUTTON_SLEEP" to "223",
+            "BUTTON_CHAN" to "229"
+        )
+
         private val insecureTrustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit

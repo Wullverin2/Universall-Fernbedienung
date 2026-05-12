@@ -118,6 +118,11 @@ class DirectTvStore(private val prefs: SharedPreferences) {
             SourceEntry("Live TV", listOf("tv", "fernsehen"), listOf("KEY_TV"))
         )
 
+        "tivo", "vestel" -> listOf(
+            SourceEntry("Quelle", listOf("source", "eingang"), listOf("KEY_SOURCE")),
+            SourceEntry("TV", listOf("fernsehen", "live tv", "tv"), listOf("KEY_TV"))
+        )
+
         else -> emptyList()
     }
 
@@ -140,6 +145,13 @@ class DirectTvStore(private val prefs: SharedPreferences) {
             AppEntry("Prime Video", "amazon", aliases = listOf("prime", "amazon prime", "prime video")),
             AppEntry("Disney+", "disneyplus", aliases = listOf("disney", "disney+")),
             AppEntry("Browser", "com.webos.app.browser", aliases = listOf("browser", "internet"))
+        )
+
+        "tivo", "vestel" -> listOf(
+            AppEntry("YouTube", "YouTube", aliases = listOf("youtube", "yt")),
+            AppEntry("Netflix", "Netflix", aliases = listOf("netflix")),
+            AppEntry("Prime Video", "Amazon Prime Video", aliases = listOf("prime", "amazon prime", "prime video")),
+            AppEntry("Browser", "Browser", aliases = listOf("browser", "internet"))
         )
 
         else -> emptyList()
