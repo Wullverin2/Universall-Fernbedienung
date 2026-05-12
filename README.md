@@ -76,6 +76,24 @@ adb uninstall de.craftplay.universalremote
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Deploy auf Galaxy S23 Ultra
+
+Fuer die lokale Entwicklung gibt es ein Skript, das die Debug-APK baut, auf dem S23 Ultra installiert und danach eine Kopie in den Download-Ordner des Smartphones legt:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\deploy-s23.ps1
+```
+
+Die APK liegt danach auf dem Smartphone unter:
+
+- `/sdcard/Download/Universal-Fernbedienung-debug.apk`
+
+Fuer eine komplette Neuinstallation:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\deploy-s23.ps1 -Fresh
+```
+
 ## Projektstruktur
 
 - `app/src/main/java/de/craftplay/samsungtvbridge/MainActivity.kt`
