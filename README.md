@@ -104,6 +104,19 @@ Für eine komplette Neuinstallation:
 powershell -ExecutionPolicy Bypass -File scripts\deploy-s23.ps1 -Fresh
 ```
 
+## Prüfliste
+
+Eine Test-Prüfliste liegt im Projekt unter:
+
+- `docs/test-checklist.md`
+- `docs/Universal-Fernbedienung-Pruefliste.pdf`
+
+PDF neu erzeugen:
+
+```powershell
+node scripts\create-test-checklist-pdf.mjs
+```
+
 ## Projektstruktur
 
 - `app/src/main/java/de/craftplay/samsungtvbridge/MainActivity.kt`
