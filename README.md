@@ -48,6 +48,7 @@ Die Universal-Fernbedienung sucht deshalb jetzt zusätzlich nach:
 - DIAL/SSDP: `urn:dial-multiscreen-org:service:dial:1`
 - UPnP/MediaRenderer-Antworten mit Vestel/Nabo/SmartCenter-Hinweisen
 - Vestel-UDP-Discovery auf Port 4950 mit `vr_query_tv_version_782`
+- gezielter Vestel-Handshake auf Port 4950 mit `vr_query_tv`, um bei manchen TVs den echten SmartCenter-Steuerport zu ermitteln
 - Vestel-WebSocket auf Port 7681
 - TiVo-IRCODE-Port 31339 nur noch als Fallback
 

@@ -251,6 +251,7 @@ class SamsungDirectTvClient(
         }
 
         if (ssdpHint?.deviceType == "vestel" || ssdpHint?.deviceType == "tivo") {
+            val controlUrl = vestelControlUrlFromHint(ssdpHint) ?: queryVestelTargetedControlUrl(ip)
             return DeviceEntry(
                 id = ssdpHint.udn ?: "vestel:$ip",
                 ip = ip,
@@ -259,7 +260,7 @@ class SamsungDirectTvClient(
                 modelName = ssdpHint.modelName,
                 mac = ssdpHint.mac ?: lookupMacAddress(ip),
                 duid = ssdpHint.udn,
-                controlUrl = vestelControlUrlFromHint(ssdpHint),
+                controlUrl = controlUrl,
                 controlMethod = "Vestel SmartCenter",
                 firstSeenAt = now,
                 lastSeenAt = now
@@ -280,6 +281,7 @@ class SamsungDirectTvClient(
         }
 
         if (isPortOpen(ip, 7681)) {
+            val controlUrl = vestelControlUrlFromHint(ssdpHint) ?: queryVestelTargetedControlUrl(ip)
             return DeviceEntry(
                 id = ssdpHint?.udn ?: "vestel:$ip",
                 ip = ip,
@@ -288,7 +290,7 @@ class SamsungDirectTvClient(
                 modelName = ssdpHint?.modelName,
                 mac = ssdpHint?.mac ?: lookupMacAddress(ip),
                 duid = ssdpHint?.udn,
-                controlUrl = vestelControlUrlFromHint(ssdpHint),
+                controlUrl = controlUrl,
                 controlMethod = "Vestel WebSocket",
                 firstSeenAt = now,
                 lastSeenAt = now
@@ -296,6 +298,7 @@ class SamsungDirectTvClient(
         }
 
         if (isPortOpen(ip, 31339)) {
+            val controlUrl = vestelControlUrlFromHint(ssdpHint) ?: queryVestelTargetedControlUrl(ip)
             return DeviceEntry(
                 id = ssdpHint?.udn ?: "vestel:$ip",
                 ip = ip,
@@ -304,7 +307,7 @@ class SamsungDirectTvClient(
                 modelName = ssdpHint?.modelName,
                 mac = ssdpHint?.mac ?: lookupMacAddress(ip),
                 duid = ssdpHint?.udn,
-                controlUrl = vestelControlUrlFromHint(ssdpHint),
+                controlUrl = controlUrl,
                 controlMethod = "TiVo-IRCODE-Fallback",
                 firstSeenAt = now,
                 lastSeenAt = now
@@ -906,13 +909,14 @@ class SamsungDirectTvClient(
         }
 
     private fun vestelSmartCenterUrls(ip: String): List<String> {
+        val targeted = listOfNotNull(queryVestelTargetedControlUrl(ip))
         val discovered = discoverVestelAppsUrls(ip)
             .map { "${ensureTrailingSlash(it)}SmartCenter" }
         val fallback = listOf(
             "http://$ip:56789/apps/SmartCenter",
             "http://$ip/apps/SmartCenter"
         )
-        return (discovered + fallback).distinct()
+        return (targeted + discovered + fallback).distinct()
     }
 
     private fun vestelSmartCenterUrls(device: DeviceEntry): List<String> {
@@ -971,6 +975,37 @@ class SamsungDirectTvClient(
         identity?.applicationUrl
             ?.takeIf { it.isNotBlank() }
             ?.let { "${ensureTrailingSlash(it)}SmartCenter" }
+
+    private fun queryVestelTargetedControlUrl(ip: String): String? {
+        val payload = "vr_query_tv".toByteArray()
+        return runCatching {
+            DatagramSocket().use { socket ->
+                socket.soTimeout = 500
+                val address = InetAddress.getByName(ip)
+                repeat(2) {
+                    socket.send(DatagramPacket(payload, payload.size, address, 4950))
+                }
+
+                val deadline = System.currentTimeMillis() + 1000
+                while (System.currentTimeMillis() < deadline) {
+                    val buffer = ByteArray(2048)
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    try {
+                        socket.receive(packet)
+                        if (packet.address?.hostAddress != ip) continue
+                        val response = String(packet.data, 0, packet.length).trim()
+                        if (response.contains("WAKEUP", ignoreCase = true)) continue
+                        extractVestelSmartCenterPort(response)?.let { port ->
+                            return@runCatching "http://$ip:$port/apps/SmartCenter"
+                        }
+                    } catch (_: SocketTimeoutException) {
+                        break
+                    }
+                }
+                null
+            }
+        }.getOrNull()
+    }
 
     private fun extractVestelSmartCenterPort(response: String): Int? {
         val firstPart = response.take(24)
