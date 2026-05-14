@@ -342,6 +342,8 @@ private fun DevicesCard(
                             device.wakeOnWirelessLan?.let { enabled ->
                                 Text("Wake-on-WiFi: ${if (enabled) "aktiv" else "nicht aktiv"}")
                             }
+                            device.controlMethod?.let { Text("Steuerung: $it") }
+                            device.controlUrl?.let { Text("Steueradresse: $it") }
                             Text(device.mac ?: "MAC unbekannt")
                         }
                     }

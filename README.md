@@ -55,6 +55,16 @@ Tasten werden bevorzugt als SmartCenter-XML an `Application-URL + SmartCenter` g
 
 Wichtig: Nicht jedes Nabo/Vestel-Modell schaltet jede Funktion frei. App-Starts und Quellen können je nach Firmware andere Paketnamen oder Menüsequenzen benötigen.
 
+MAC-Adressen werden von Nabo/Vestel über SmartCenter nicht immer direkt geliefert. Die App versucht zusätzlich, die MAC-Adresse aus Gerätebeschreibungen, UDP-Antworten und der ARP-Tabelle des Android-Geräts zu lernen. Wenn Android oder der Router diese Information nicht freigibt, bleibt die MAC unbekannt. Für normale Steuerung ist das egal; für Einschalten per Wake-on-LAN wird die MAC benötigt.
+
+Wenn ein Nabo/Vestel-TV im Handy-Hotspot steuerbar ist, im vorhandenen WLAN aber nur gefunden wird und nicht reagiert, liegt das meist am Netzwerk und nicht am TV-Code. Prüfe dann im Router:
+
+- Gäste-WLAN deaktivieren oder Handy und TV ins normale WLAN bringen
+- AP-Isolation, Client-Isolation oder WLAN-Geräte dürfen nicht miteinander kommunizieren deaktivieren
+- Multicast/UPnP/IGMP nicht blockieren
+- 2,4-GHz- und 5-GHz-Geräte dürfen miteinander kommunizieren
+- VLANs oder getrennte Mesh-/Repeater-Netze vermeiden
+
 ## Scannen in anderen WLANs
 
 Der Scanner ist nicht fest an `192.168.0.x` gebunden. Er ermittelt die lokalen IPv4-Netze des Smartphones und scannt diese Netze. Zusätzlich werden SSDP/UPnP- und Vestel-UDP-Antworten direkt übernommen, auch wenn sie außerhalb der geratenen Kandidatenliste liegen.

@@ -39,6 +39,8 @@ class DirectTvStore(private val prefs: SharedPreferences) {
                 duid = device.duid ?: existing?.duid,
                 networkType = device.networkType ?: existing?.networkType,
                 wakeOnWirelessLan = device.wakeOnWirelessLan ?: existing?.wakeOnWirelessLan,
+                controlUrl = device.controlUrl ?: existing?.controlUrl,
+                controlMethod = device.controlMethod ?: existing?.controlMethod,
                 firstSeenAt = existing?.firstSeenAt ?: device.firstSeenAt.ifBlank { now },
                 lastSeenAt = now,
                 missing = false

@@ -42,6 +42,8 @@ data class DeviceEntry(
     val duid: String? = null,
     val networkType: String? = null,
     val wakeOnWirelessLan: Boolean? = null,
+    val controlUrl: String? = null,
+    val controlMethod: String? = null,
     val firstSeenAt: String,
     val lastSeenAt: String,
     val missing: Boolean = false

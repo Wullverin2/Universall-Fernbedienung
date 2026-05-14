@@ -211,6 +211,12 @@ class SamsungDirectTvClient(
             .put("mac", device.mac ?: JSONObject.NULL)
             .put("networkType", device.networkType ?: JSONObject.NULL)
             .put("wakeOnWirelessLan", device.wakeOnWirelessLan ?: JSONObject.NULL)
+            .put("controlUrl", device.controlUrl ?: JSONObject.NULL)
+            .put("controlMethod", device.controlMethod ?: JSONObject.NULL)
+            .put("localIpv4", JSONArray(inferLocalIpv4Addresses()))
+            .put("localSubnetPrefixes", JSONArray(inferSubnetPrefixes()))
+            .put("vestelPorts", if (device.deviceType.lowercase() in setOf("tivo", "vestel")) vestelPortDiagnostics(device) else JSONObject.NULL)
+            .put("hint", networkTroubleshootingHint(device))
             .toString(2)
     }
 
@@ -251,7 +257,10 @@ class SamsungDirectTvClient(
                 name = ssdpHint.name ?: "[Nabo/Vestel] $ip",
                 deviceType = "vestel",
                 modelName = ssdpHint.modelName,
+                mac = ssdpHint.mac ?: lookupMacAddress(ip),
                 duid = ssdpHint.udn,
+                controlUrl = vestelControlUrlFromHint(ssdpHint),
+                controlMethod = "Vestel SmartCenter",
                 firstSeenAt = now,
                 lastSeenAt = now
             )
@@ -277,7 +286,10 @@ class SamsungDirectTvClient(
                 name = ssdpHint?.name ?: "[Nabo/Vestel] $ip",
                 deviceType = "vestel",
                 modelName = ssdpHint?.modelName,
+                mac = ssdpHint?.mac ?: lookupMacAddress(ip),
                 duid = ssdpHint?.udn,
+                controlUrl = vestelControlUrlFromHint(ssdpHint),
+                controlMethod = "Vestel WebSocket",
                 firstSeenAt = now,
                 lastSeenAt = now
             )
@@ -290,7 +302,10 @@ class SamsungDirectTvClient(
                 name = ssdpHint?.name ?: "[Nabo/Vestel] $ip",
                 deviceType = "vestel",
                 modelName = ssdpHint?.modelName,
+                mac = ssdpHint?.mac ?: lookupMacAddress(ip),
                 duid = ssdpHint?.udn,
+                controlUrl = vestelControlUrlFromHint(ssdpHint),
+                controlMethod = "TiVo-IRCODE-Fallback",
                 firstSeenAt = now,
                 lastSeenAt = now
             )
@@ -397,9 +412,12 @@ class SamsungDirectTvClient(
                             .split(';', '|', ',', ' ')
                             .firstOrNull { it.contains("tv", ignoreCase = true) || it.contains("vestel", ignoreCase = true) }
                             ?.takeIf { it.length in 3..60 }
+                        val smartCenterPort = extractVestelSmartCenterPort(response)
                         found[ip] = SsdpIdentity(
                             ip = ip,
                             deviceType = "vestel",
+                            applicationUrl = smartCenterPort?.let { "http://$ip:$it/apps/" },
+                            mac = findFirstMacAddressInText(response),
                             name = name ?: "[Nabo/Vestel] $ip"
                         )
                     }
@@ -835,7 +853,7 @@ class SamsungDirectTvClient(
 
     private suspend fun vestelPostSmartCenter(device: DeviceEntry, payload: String): Int? = withContext(Dispatchers.IO) {
         val body = payload.toRequestBody("text/xml; charset=UTF-8".toMediaType())
-        for (url in vestelSmartCenterUrls(device.ip)) {
+        for (url in vestelSmartCenterUrls(device)) {
             try {
                 val request = Request.Builder()
                     .url(url)
@@ -897,6 +915,11 @@ class SamsungDirectTvClient(
         return (discovered + fallback).distinct()
     }
 
+    private fun vestelSmartCenterUrls(device: DeviceEntry): List<String> {
+        val stored = listOfNotNull(device.controlUrl?.takeIf { it.isNotBlank() })
+        return (stored + vestelSmartCenterUrls(device.ip)).distinct()
+    }
+
     private fun discoverVestelAppsUrls(ip: String): List<String> {
         val found = linkedSetOf<String>()
         val multicastAddress = InetAddress.getByName("239.255.255.250")
@@ -942,6 +965,19 @@ class SamsungDirectTvClient(
             val port = if (url.port > 0) ":${url.port}" else ""
             "${url.protocol}://${url.host}$port/apps/"
         }.getOrNull()
+    }
+
+    private fun vestelControlUrlFromHint(identity: SsdpIdentity?): String? =
+        identity?.applicationUrl
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "${ensureTrailingSlash(it)}SmartCenter" }
+
+    private fun extractVestelSmartCenterPort(response: String): Int? {
+        val firstPart = response.take(24)
+        return Regex("\\b\\d{2,5}\\b")
+            .findAll(firstPart)
+            .mapNotNull { it.value.toIntOrNull() }
+            .firstOrNull { it in 2..65535 && it !in setOf(4950, 1900) }
     }
 
     private fun ensureTrailingSlash(value: String): String =
@@ -1064,11 +1100,33 @@ class SamsungDirectTvClient(
 
     private suspend fun probeVestelStatus(device: DeviceEntry): ProbeStatus = withContext(Dispatchers.IO) {
         when {
+            device.controlUrl?.let { isUrlHostPortOpen(it) } == true -> ProbeStatus(true, device.controlUrl.let { defaultPortForUrl(it) })
             isPortOpen(device.ip, 7681) -> ProbeStatus(true, 7681)
             isPortOpen(device.ip, 56789) -> ProbeStatus(true, 56789)
             isPortOpen(device.ip, 31339) -> ProbeStatus(true, 31339)
             else -> ProbeStatus(false, null)
         }
+    }
+
+    private fun vestelPortDiagnostics(device: DeviceEntry): JSONObject =
+        JSONObject()
+            .put("controlUrl", device.controlUrl ?: JSONObject.NULL)
+            .put("controlUrlPortOpen", device.controlUrl?.let { isUrlHostPortOpen(it) } ?: JSONObject.NULL)
+            .put("webSocket7681", isPortOpen(device.ip, 7681))
+            .put("smartCenter56789", isPortOpen(device.ip, 56789))
+            .put("tivo31339", isPortOpen(device.ip, 31339))
+
+    private fun networkTroubleshootingHint(device: DeviceEntry): String {
+        if (device.deviceType.lowercase() !in setOf("tivo", "vestel")) return ""
+        return "Wenn Steuerung im Handy-Hotspot funktioniert, im vorhandenen WLAN aber nicht, blockiert der Router wahrscheinlich Client-zu-Client-Verbindungen, AP-Isolation, Gast-WLAN, VLAN oder Multicast/UPnP. TV und Handy müssen im gleichen normalen WLAN/LAN miteinander direkt sprechen dürfen."
+    }
+
+    private fun isUrlHostPortOpen(url: String): Boolean {
+        return runCatching {
+            val parsed = URL(url)
+            val port = defaultPortForUrl(url)
+            isPortOpen(parsed.host, port)
+        }.getOrDefault(false)
     }
 
     private suspend fun probeSamsungIdentity(ip: String): SamsungIdentity? = withContext(Dispatchers.IO) {
@@ -1128,6 +1186,7 @@ class SamsungDirectTvClient(
                     deviceType = "lg",
                     location = headers["location"],
                     applicationUrl = headers["application-url"],
+                    mac = findFirstMacAddressInText(signature),
                     udn = extractUdn(headers["usn"]),
                     name = headers["friendlyname"]
                 )
@@ -1139,6 +1198,7 @@ class SamsungDirectTvClient(
                     deviceType = "vestel",
                     location = headers["location"],
                     applicationUrl = headers["application-url"],
+                    mac = findFirstMacAddressInText(signature),
                     udn = extractUdn(headers["usn"]),
                     name = headers["friendlyname"]
                 )
@@ -1150,6 +1210,7 @@ class SamsungDirectTvClient(
                     deviceType = "dial",
                     location = headers["location"],
                     applicationUrl = headers["application-url"],
+                    mac = findFirstMacAddressInText(signature),
                     udn = extractUdn(headers["usn"]),
                     name = headers["friendlyname"]
                 )
@@ -1181,6 +1242,7 @@ class SamsungDirectTvClient(
             name = friendlyName ?: identity.name,
             modelName = modelName ?: identity.modelName,
             udn = udn,
+            mac = identity.mac ?: findFirstMacAddressInText(description),
             applicationUrl = identity.applicationUrl
         )
     }
@@ -1234,6 +1296,7 @@ class SamsungDirectTvClient(
             deviceType = if (existing.deviceType == "samsung" || existing.deviceType == "dial") incoming.deviceType else existing.deviceType,
             location = existing.location ?: incoming.location,
             applicationUrl = existing.applicationUrl ?: incoming.applicationUrl,
+            mac = existing.mac ?: incoming.mac,
             udn = existing.udn ?: incoming.udn,
             name = existing.name ?: incoming.name,
             modelName = existing.modelName ?: incoming.modelName
@@ -1325,12 +1388,51 @@ class SamsungDirectTvClient(
     }
 
     private fun findFirstMacAddress(json: JSONObject): String? {
+        return findFirstMacAddressInText(json.toString())
+    }
+
+    private fun findFirstMacAddressInText(value: String): String? {
         val macRegex = Regex("(?i)\\b[0-9a-f]{2}([:-][0-9a-f]{2}){5}\\b")
-        return macRegex.find(json.toString())?.value?.uppercase()?.replace("-", ":")
+        return macRegex.find(value)?.value?.uppercase()?.replace("-", ":")
     }
 
     private fun looksLikeMacAddress(value: String): Boolean =
         value.matches(Regex("(?i)^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$"))
+
+    private fun lookupMacAddress(ip: String): String? {
+        primeNeighborCache(ip)
+        return lookupMacFromArpTable(ip)
+    }
+
+    private fun primeNeighborCache(ip: String) {
+        runCatching {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(ip, 80), 120)
+            }
+        }
+        listOf(7681, 56789, 31339, 4950).forEach { port ->
+            runCatching {
+                DatagramSocket().use { socket ->
+                    val payload = ByteArray(1)
+                    socket.send(DatagramPacket(payload, payload.size, InetAddress.getByName(ip), port))
+                }
+            }
+        }
+    }
+
+    private fun lookupMacFromArpTable(ip: String): String? {
+        return runCatching {
+            java.io.File("/proc/net/arp")
+                .readLines()
+                .drop(1)
+                .map { it.trim().split(Regex("\\s+")) }
+                .firstOrNull { columns ->
+                    columns.size >= 4 && columns[0] == ip && looksLikeMacAddress(columns[3]) && columns[3] != "00:00:00:00:00:00"
+                }
+                ?.get(3)
+                ?.uppercase()
+        }.getOrNull()
+    }
 
     private fun isPortOpen(ip: String, port: Int): Boolean {
         return try {
@@ -1462,6 +1564,7 @@ class SamsungDirectTvClient(
         val deviceType: String,
         val location: String? = null,
         val applicationUrl: String? = null,
+        val mac: String? = null,
         val udn: String? = null,
         val name: String? = null,
         val modelName: String? = null
