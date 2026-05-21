@@ -213,6 +213,19 @@ class SamsungDirectTvClient(
             .put("wakeOnWirelessLan", device.wakeOnWirelessLan ?: JSONObject.NULL)
             .put("controlUrl", device.controlUrl ?: JSONObject.NULL)
             .put("controlMethod", device.controlMethod ?: JSONObject.NULL)
+            .put("platform", device.platform ?: JSONObject.NULL)
+            .put(
+                "capabilities",
+                JSONObject()
+                    .put("supportsDial", device.supportsDial)
+                    .put("supportsNetworkRemote", device.supportsNetworkRemote)
+                    .put("supportsWakeOnLan", device.supportsWakeOnLan)
+                    .put("supportsSmartCenter", device.supportsSmartCenter)
+                    .put("supportsTiVoProfile", device.supportsTiVoProfile)
+            )
+            .put("lastErrorCode", device.lastErrorCode ?: JSONObject.NULL)
+            .put("lastSuccessfulCommand", device.lastSuccessfulCommand ?: JSONObject.NULL)
+            .put("pairingStatus", device.pairingStatus ?: JSONObject.NULL)
             .put("localIpv4", JSONArray(inferLocalIpv4Addresses()))
             .put("localSubnetPrefixes", JSONArray(inferSubnetPrefixes()))
             .put("vestelPorts", if (device.deviceType.lowercase() in setOf("tivo", "vestel")) vestelPortDiagnostics(device) else JSONObject.NULL)
@@ -221,37 +234,8 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun discoverDevice(ip: String, now: String, ssdpHint: SsdpIdentity?): DeviceEntry? {
-        val samsung = probeSamsungIdentity(ip)
-        if (samsung != null) {
-            return DeviceEntry(
-                id = samsung.duid ?: "samsung:$ip",
-                ip = ip,
-                name = samsung.name ?: "[Samsung] $ip",
-                deviceType = "samsung",
-                modelName = samsung.modelName,
-                mac = samsung.mac,
-                duid = samsung.duid,
-                networkType = samsung.networkType,
-                firstSeenAt = now,
-                lastSeenAt = now
-            )
-        }
-
-        if (ssdpHint?.deviceType == "lg") {
-            return DeviceEntry(
-                id = ssdpHint.udn ?: "lg:$ip",
-                ip = ip,
-                name = ssdpHint.name ?: "[LG] $ip",
-                deviceType = "lg",
-                modelName = ssdpHint.modelName,
-                duid = ssdpHint.udn,
-                firstSeenAt = now,
-                lastSeenAt = now
-            )
-        }
-
         if (ssdpHint?.deviceType == "vestel" || ssdpHint?.deviceType == "tivo") {
-            val controlUrl = vestelControlUrlFromHint(ssdpHint) ?: queryVestelTargetedControlUrl(ip)
+            val controlUrl = validatedVestelControlUrl(ip, ssdpHint)
             return DeviceEntry(
                 id = ssdpHint.udn ?: "vestel:$ip",
                 ip = ip,
@@ -262,26 +246,75 @@ class SamsungDirectTvClient(
                 duid = ssdpHint.udn,
                 controlUrl = controlUrl,
                 controlMethod = "Vestel SmartCenter",
+                platform = if (ssdpHint.deviceType == "tivo") "VESTEL_TIVO" else "VESTEL_LEGACY",
+                supportsDial = !ssdpHint.applicationUrl.isNullOrBlank(),
+                supportsNetworkRemote = true,
+                supportsWakeOnLan = !ssdpHint.mac.isNullOrBlank(),
+                supportsSmartCenter = !controlUrl.isNullOrBlank(),
+                supportsTiVoProfile = ssdpHint.deviceType == "tivo",
+                pairingStatus = "nicht erforderlich",
                 firstSeenAt = now,
                 lastSeenAt = now
             )
         }
 
-        if (isPortOpen(ip, 3000) || isPortOpen(ip, 3001)) {
+        if (ssdpHint?.deviceType == "lg") {
             return DeviceEntry(
-                id = "lg:$ip",
+                id = ssdpHint.udn ?: "lg:$ip",
                 ip = ip,
                 name = ssdpHint?.name ?: "[LG] $ip",
                 deviceType = "lg",
                 modelName = ssdpHint?.modelName,
                 duid = ssdpHint?.udn,
+                platform = "LG_WEBOS",
+                supportsDial = false,
+                supportsNetworkRemote = true,
+                supportsWakeOnLan = false,
+                pairingStatus = if (store.getToken(ssdpHint.udn ?: "lg:$ip").isNullOrBlank()) "Pairing erforderlich" else "gekoppelt",
                 firstSeenAt = now,
                 lastSeenAt = now
             )
         }
 
-        if (isPortOpen(ip, 7681)) {
-            val controlUrl = vestelControlUrlFromHint(ssdpHint) ?: queryVestelTargetedControlUrl(ip)
+        if (isPortOpen(ip, 8001) || isPortOpen(ip, 8002)) {
+            val samsung = probeSamsungIdentity(ip)
+            if (samsung != null) {
+                return DeviceEntry(
+                    id = samsung.duid ?: "samsung:$ip",
+                    ip = ip,
+                    name = samsung.name ?: "[Samsung] $ip",
+                    deviceType = "samsung",
+                    modelName = samsung.modelName,
+                    mac = samsung.mac,
+                    duid = samsung.duid,
+                    networkType = samsung.networkType,
+                    platform = "SAMSUNG_TIZEN",
+                    supportsNetworkRemote = true,
+                    supportsWakeOnLan = !samsung.mac.isNullOrBlank(),
+                    firstSeenAt = now,
+                    lastSeenAt = now
+                )
+            }
+        }
+
+        if (isPortOpen(ip, 3000) || isPortOpen(ip, 3001)) {
+            return DeviceEntry(
+                id = ssdpHint?.udn ?: "lg:$ip",
+                ip = ip,
+                name = ssdpHint?.name ?: "[LG] $ip",
+                deviceType = "lg",
+                modelName = ssdpHint?.modelName,
+                duid = ssdpHint?.udn,
+                platform = "LG_WEBOS",
+                supportsNetworkRemote = true,
+                pairingStatus = "Pairing erforderlich",
+                firstSeenAt = now,
+                lastSeenAt = now
+            )
+        }
+
+        val controlUrl = if (ssdpHint?.deviceType == "dial") validatedVestelControlUrl(ip, ssdpHint) else null
+        if (controlUrl != null) {
             return DeviceEntry(
                 id = ssdpHint?.udn ?: "vestel:$ip",
                 ip = ip,
@@ -291,24 +324,14 @@ class SamsungDirectTvClient(
                 mac = ssdpHint?.mac ?: lookupMacAddress(ip),
                 duid = ssdpHint?.udn,
                 controlUrl = controlUrl,
-                controlMethod = "Vestel WebSocket",
-                firstSeenAt = now,
-                lastSeenAt = now
-            )
-        }
-
-        if (isPortOpen(ip, 31339)) {
-            val controlUrl = vestelControlUrlFromHint(ssdpHint) ?: queryVestelTargetedControlUrl(ip)
-            return DeviceEntry(
-                id = ssdpHint?.udn ?: "vestel:$ip",
-                ip = ip,
-                name = ssdpHint?.name ?: "[Nabo/Vestel] $ip",
-                deviceType = "vestel",
-                modelName = ssdpHint?.modelName,
-                mac = ssdpHint?.mac ?: lookupMacAddress(ip),
-                duid = ssdpHint?.udn,
-                controlUrl = controlUrl,
-                controlMethod = "TiVo-IRCODE-Fallback",
+                controlMethod = "Vestel SmartCenter",
+                platform = "VESTEL_LEGACY",
+                supportsDial = !ssdpHint?.applicationUrl.isNullOrBlank(),
+                supportsNetworkRemote = true,
+                supportsWakeOnLan = !ssdpHint?.mac.isNullOrBlank(),
+                supportsSmartCenter = true,
+                supportsTiVoProfile = isPortOpen(ip, 31339),
+                pairingStatus = "nicht erforderlich",
                 firstSeenAt = now,
                 lastSeenAt = now
             )
@@ -409,7 +432,7 @@ class SamsungDirectTvClient(
                     val response = String(packet.data, 0, packet.length).trim()
                     if (response.contains("WAKEUP", ignoreCase = true)) continue
                     val normalized = response.lowercase()
-                    if (normalized.contains("vr_tv_query_rsp") || normalized.contains("vr_tv")) {
+                    if (isVestelUdpResponse(normalized)) {
                         val ip = packet.address?.hostAddress ?: continue
                         val name = response
                             .split(';', '|', ',', ' ')
@@ -656,6 +679,10 @@ class SamsungDirectTvClient(
             mac = mac,
             networkType = networkType ?: boardType,
             wakeOnWirelessLan = wakeOnWirelessLan,
+            platform = "LG_WEBOS",
+            supportsNetworkRemote = true,
+            supportsWakeOnLan = !mac.isNullOrBlank(),
+            pairingStatus = "gekoppelt",
             missing = false
         )
         store.updateDevice(updated)
@@ -663,12 +690,22 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun lgLaunchApp(device: DeviceEntry, app: AppEntry) {
-        val appId = app.appId ?: throw IllegalStateException("LG-App-ID fehlt.")
-        lgRequest(
-            device,
-            "ssap://system.launcher/launch",
-            JSONObject().put("id", appId)
-        )
+        val candidates = (app.lgAppIds + listOfNotNull(app.appId)).distinct()
+        if (candidates.isEmpty()) throw IllegalStateException("LG-App-ID fehlt.")
+        var lastError: Throwable? = null
+        for (appId in candidates) {
+            try {
+                lgRequest(
+                    device,
+                    "ssap://system.launcher/launch",
+                    JSONObject().put("id", appId)
+                )
+                return
+            } catch (error: Throwable) {
+                lastError = error
+            }
+        }
+        throw IllegalStateException(lastError?.message ?: "LG-App konnte nicht gestartet werden.")
     }
 
     private suspend fun lgSendKey(device: DeviceEntry, key: String): Int {
@@ -694,6 +731,25 @@ class SamsungDirectTvClient(
             "KEY_ENTER" -> "ENTER"
             "KEY_INFO" -> "INFO"
             "KEY_TV" -> "LIVE_TV"
+            "KEY_SOURCE" -> "INPUT"
+            "KEY_GUIDE" -> "GUIDE"
+            "KEY_EXIT" -> "EXIT"
+            "KEY_TTX_MIX", "KEY_TEXT" -> "TEXT"
+            "KEY_PLAY" -> "PLAY"
+            "KEY_PAUSE" -> "PAUSE"
+            "KEY_STOP" -> "STOP"
+            "KEY_REWIND" -> "REWIND"
+            "KEY_FF" -> "FASTFORWARD"
+            "KEY_0" -> "0"
+            "KEY_1" -> "1"
+            "KEY_2" -> "2"
+            "KEY_3" -> "3"
+            "KEY_4" -> "4"
+            "KEY_5" -> "5"
+            "KEY_6" -> "6"
+            "KEY_7" -> "7"
+            "KEY_8" -> "8"
+            "KEY_9" -> "9"
             else -> throw IllegalStateException("LG-Key derzeit nicht unterstützt: $key")
         }
         val session = lgRequest(device, "ssap://com.webos.service.networkinput/getPointerInputSocket")
@@ -727,12 +783,29 @@ class SamsungDirectTvClient(
 
     private suspend fun lgRequest(device: DeviceEntry, uri: String, payload: JSONObject = JSONObject()): LgResult {
         var lastError: Throwable? = null
-        for (port in listOf(3000, 3001)) {
-            try {
-                return connectLgAndRequest(device, port, uri, payload)
-            } catch (error: Throwable) {
-                lastError = error
+        val hadToken = !store.getToken(device.id).isNullOrBlank()
+
+        repeat(if (hadToken) 2 else 1) { attempt ->
+            for (port in listOf(3000, 3001)) {
+                try {
+                    val result = connectLgAndRequest(device, port, uri, payload)
+                    recordDeviceSuccess(device, "LG $uri", pairingStatus = "gekoppelt")
+                    return result
+                } catch (error: LgAuthorizationException) {
+                    lastError = error
+                    recordDeviceError(device, error.code, "LG Pairing ungültig")
+                    if (hadToken && attempt == 0) {
+                        store.clearToken(device.id)
+                        break
+                    }
+                } catch (error: Throwable) {
+                    lastError = error
+                }
             }
+        }
+
+        if (lastError is LgAuthorizationException) {
+            throw IllegalStateException("LG meldet 401/keine Berechtigung. Bitte am TV die Pairing-Abfrage bestätigen. Falls keine Abfrage erscheint, LG-Gerät in der App entfernen, neu scannen und erneut verbinden.")
         }
         throw IllegalStateException(lastError?.message ?: "LG-Verbindung fehlgeschlagen.")
     }
@@ -748,11 +821,7 @@ class SamsungDirectTvClient(
 
             val socket = client.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    val registerPayload = JSONObject()
-                        .put("type", "register")
-                        .put("id", "register_${UUID.randomUUID()}")
-                        .put("payload", JSONObject().put("pairingType", "PROMPT").put("client-key", storedKey ?: ""))
-                    webSocket.send(registerPayload.toString())
+                    webSocket.send(lgRegisterMessage(storedKey).toString())
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -773,8 +842,9 @@ class SamsungDirectTvClient(
 
                             "response" -> {
                                 if (json.optString("id") == requestId && !resumed) {
-                                    resumed = true
                                     val responsePayload = json.optJSONObject("payload")
+                                    lgResponseError(responsePayload)?.let { throw it }
+                                    resumed = true
                                     webSocket.close(1000, null)
                                     continuation.resume(LgResult(port, responsePayload))
                                 }
@@ -784,7 +854,7 @@ class SamsungDirectTvClient(
                             "error" -> {
                                 if (!resumed) {
                                     resumed = true
-                                    continuation.resumeWithException(IllegalStateException(json.toString()))
+                                    continuation.resumeWithException(lgErrorFromJson(json))
                                 }
                                 Unit
                             }
@@ -809,6 +879,85 @@ class SamsungDirectTvClient(
             continuation.invokeOnCancellation { socket.cancel() }
         }
 
+    private fun lgRegisterMessage(storedKey: String?): JSONObject {
+        val permissions = JSONArray(
+            listOf(
+                "LAUNCH",
+                "LAUNCH_WEBAPP",
+                "APP_TO_APP",
+                "CONTROL_AUDIO",
+                "CONTROL_DISPLAY",
+                "CONTROL_INPUT_JOYSTICK",
+                "CONTROL_INPUT_MEDIA_PLAYBACK",
+                "CONTROL_INPUT_MEDIA_RECORDING",
+                "CONTROL_INPUT_TV",
+                "CONTROL_POWER",
+                "READ_APP_STATUS",
+                "READ_CURRENT_CHANNEL",
+                "READ_INPUT_DEVICE_LIST",
+                "READ_INSTALLED_APPS",
+                "READ_LGE_SDX",
+                "READ_NETWORK_STATE",
+                "READ_TV_CHANNEL_LIST",
+                "WRITE_NOTIFICATION_TOAST"
+            )
+        )
+        val payload = JSONObject()
+            .put("pairingType", "PROMPT")
+            .put(
+                "manifest",
+                JSONObject()
+                    .put("manifestVersion", 1)
+                    .put("appVersion", "1.0")
+                    .put("signed", JSONObject().put("permissions", permissions))
+                    .put("permissions", permissions)
+            )
+
+        if (!storedKey.isNullOrBlank()) {
+            payload.put("client-key", storedKey)
+        }
+
+        return JSONObject()
+            .put("type", "register")
+            .put("id", "register_${UUID.randomUUID()}")
+            .put("payload", payload)
+    }
+
+    private fun lgResponseError(payload: JSONObject?): Throwable? {
+        if (payload == null) return null
+        if (payload.optBoolean("returnValue", true)) return null
+        val code = payload.optString("errorCode")
+            .takeIf { it.isNotBlank() }
+            ?: payload.optString("code").takeIf { it.isNotBlank() }
+            ?: "LG_ERROR"
+        val message = payload.optString("errorText")
+            .takeIf { it.isNotBlank() }
+            ?: payload.optString("error").takeIf { it.isNotBlank() }
+            ?: payload.toString()
+        return if (code.contains("401") || message.contains("401")) {
+            LgAuthorizationException(code, message)
+        } else {
+            IllegalStateException("LG $code: $message")
+        }
+    }
+
+    private fun lgErrorFromJson(json: JSONObject): Throwable {
+        val payload = json.optJSONObject("payload")
+        val code = payload?.optString("errorCode")?.takeIf { it.isNotBlank() }
+            ?: payload?.optString("code")?.takeIf { it.isNotBlank() }
+            ?: json.optString("errorCode").takeIf { it.isNotBlank() }
+            ?: "LG_ERROR"
+        val text = payload?.optString("errorText")?.takeIf { it.isNotBlank() }
+            ?: payload?.optString("error").takeIf { !it.isNullOrBlank() }
+            ?: json.optString("error").takeIf { it.isNotBlank() }
+            ?: json.toString()
+        return if (code.contains("401") || text.contains("401") || text.contains("unauthorized", ignoreCase = true)) {
+            LgAuthorizationException(code, text)
+        } else {
+            IllegalStateException("LG $code: $text")
+        }
+    }
+
     private suspend fun sendVestelRemoteKey(device: DeviceEntry, key: String): Int {
         val button = mapVestelButton(key)
         val codes = listOfNotNull(
@@ -827,7 +976,9 @@ class SamsungDirectTvClient(
             }
 
             try {
-                return vestelSendWebSocket(device, payload)
+                val port = vestelSendWebSocket(device, payload)
+                recordDeviceSuccess(device, "Vestel WebSocket $key")
+                return port
             } catch (error: Throwable) {
                 lastError = error
             }
@@ -836,41 +987,88 @@ class SamsungDirectTvClient(
         if (isPortOpen(device.ip, 31339)) {
             try {
                 sendTivoCode(device, mapTivoKey(key))
+                recordDeviceSuccess(device, "TiVo IRCODE $key")
                 return 31339
             } catch (error: Throwable) {
                 lastError = error
             }
         }
 
+        recordDeviceError(device, "VESTEL_SEND_FAILED")
         throw IllegalStateException(lastError?.message ?: "Nabo/Vestel-Taste konnte nicht gesendet werden.")
     }
 
     private suspend fun vestelLaunchApp(device: DeviceEntry, app: AppEntry) {
+        if (vestelLaunchDialApp(device, app)) {
+            recordDeviceSuccess(device, "Vestel DIAL App ${app.name}")
+            return
+        }
+
         val packageName = app.appId?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("Für diese Vestel/Nabo-App ist keine App-ID hinterlegt.")
         val page = app.tizenAppId.orEmpty()
         val payload = "<?xml version='1.0' ?><openapplication><application packagename='${escapeXml(packageName)}' page='${escapeXml(page)}'/></openapplication>"
-        vestelPostSmartCenter(device, payload)
-            ?: throw IllegalStateException("Vestel/Nabo-App-Start wurde vom TV nicht angenommen.")
+        if (vestelPostSmartCenter(device, payload) != null) return
+
+        if (app.macroKeys.isNotEmpty()) {
+            app.macroKeys.forEach { key ->
+                sendVestelRemoteKey(device, key)
+                delay(350)
+            }
+            return
+        }
+
+        throw IllegalStateException("Vestel/Nabo-App-Start wurde vom TV nicht angenommen.")
+    }
+
+    private fun vestelLaunchDialApp(device: DeviceEntry, app: AppEntry): Boolean {
+        val appNames = (app.dialNames + listOfNotNull(app.appId, app.name))
+            .filter { it.isNotBlank() }
+            .distinct()
+        val appBaseUrls = discoverVestelAppsUrls(device.ip)
+            .plus(device.controlUrl?.substringBeforeLast("/SmartCenter")?.let { ensureTrailingSlash(it.removeSuffix("/apps")) + "apps/" })
+            .filterNotNull()
+            .distinct()
+
+        for (baseUrl in appBaseUrls) {
+            for (appName in appNames) {
+                val url = "${ensureTrailingSlash(baseUrl)}${URLEncoder.encode(appName, "UTF-8")}"
+                val ok = runCatching {
+                    val request = Request.Builder()
+                        .url(url)
+                        .post(ByteArray(0).toRequestBody(null))
+                        .build()
+                    standardHttpClient.newCall(request).execute().use { response ->
+                        response.isSuccessful
+                    }
+                }.getOrDefault(false)
+                if (ok) return true
+            }
+        }
+        return false
     }
 
     private suspend fun vestelPostSmartCenter(device: DeviceEntry, payload: String): Int? = withContext(Dispatchers.IO) {
-        val body = payload.toRequestBody("text/xml; charset=UTF-8".toMediaType())
         for (url in vestelSmartCenterUrls(device)) {
-            try {
-                val request = Request.Builder()
-                    .url(url)
-                    .post(body)
-                    .header("application_name", "tv smart centre")
-                    .header("Accept", "text/xml, */*")
-                    .build()
-                standardHttpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        return@withContext defaultPortForUrl(url)
+            for (contentType in vestelContentTypes) {
+                try {
+                    val body = payload.toRequestBody(contentType.toMediaType())
+                    val request = Request.Builder()
+                        .url(url)
+                        .post(body)
+                        .header("application_name", "tv smart centre")
+                        .header("Connection", "keep-alive")
+                        .header("Accept", "text/xml, */*")
+                        .build()
+                    standardHttpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            recordDeviceSuccess(device, "Vestel SmartCenter $url")
+                            return@withContext defaultPortForUrl(url)
+                        }
                     }
+                } catch (_: Throwable) {
+                    Unit
                 }
-            } catch (_: Throwable) {
-                Unit
             }
         }
         null
@@ -922,6 +1120,39 @@ class SamsungDirectTvClient(
     private fun vestelSmartCenterUrls(device: DeviceEntry): List<String> {
         val stored = listOfNotNull(device.controlUrl?.takeIf { it.isNotBlank() })
         return (stored + vestelSmartCenterUrls(device.ip)).distinct()
+    }
+
+    private fun validatedVestelControlUrl(ip: String, identity: SsdpIdentity?): String? {
+        val candidates = listOfNotNull(
+            vestelControlUrlFromHint(identity),
+            queryVestelTargetedControlUrl(ip),
+            "http://$ip:56789/apps/SmartCenter"
+        ).distinct()
+        return candidates.firstOrNull { validateVestelSmartCenterUrl(it) }
+    }
+
+    private fun validateVestelSmartCenterUrl(url: String): Boolean {
+        val payloads = listOf(
+            "<?xml version='1.0' ?><command>getapplicationlist</command>",
+            "<?xml version='1.0' ?><command>getlauncherapplist</command>"
+        )
+        for (payload in payloads) {
+            for (contentType in vestelContentTypes) {
+                val result = runCatching {
+                    val request = Request.Builder()
+                        .url(url)
+                        .post(payload.toRequestBody(contentType.toMediaType()))
+                        .header("application_name", "tv smart centre")
+                        .header("Accept", "text/xml, */*")
+                        .build()
+                    standardHttpClient.newCall(request).execute().use { response ->
+                        response.isSuccessful
+                    }
+                }.getOrDefault(false)
+                if (result) return true
+            }
+        }
+        return false
     }
 
     private fun discoverVestelAppsUrls(ip: String): List<String> {
@@ -995,6 +1226,7 @@ class SamsungDirectTvClient(
                         if (packet.address?.hostAddress != ip) continue
                         val response = String(packet.data, 0, packet.length).trim()
                         if (response.contains("WAKEUP", ignoreCase = true)) continue
+                        if (!isVestelUdpResponse(response.lowercase())) continue
                         extractVestelSmartCenterPort(response)?.let { port ->
                             return@runCatching "http://$ip:$port/apps/SmartCenter"
                         }
@@ -1012,8 +1244,11 @@ class SamsungDirectTvClient(
         return Regex("\\b\\d{2,5}\\b")
             .findAll(firstPart)
             .mapNotNull { it.value.toIntOrNull() }
-            .firstOrNull { it in 2..65535 && it !in setOf(4950, 1900) }
+            .firstOrNull { it in 1024..65535 && it !in setOf(1900, 4950, 7681, 31339) }
     }
+
+    private fun isVestelUdpResponse(response: String): Boolean =
+        response.contains("vr_tv_query_rsp") || response.startsWith("vr_tv") || response.contains(";vr_tv")
 
     private fun ensureTrailingSlash(value: String): String =
         if (value.endsWith('/')) value else "$value/"
@@ -1583,7 +1818,30 @@ class SamsungDirectTvClient(
         return block(device)
     }
 
+    private fun recordDeviceSuccess(device: DeviceEntry, command: String, pairingStatus: String? = null) {
+        val current = store.getRegistry().devices.firstOrNull { it.id == device.id } ?: device
+        store.updateDevice(
+            current.copy(
+                lastSuccessfulCommand = command,
+                lastErrorCode = null,
+                pairingStatus = pairingStatus ?: current.pairingStatus,
+                missing = false
+            )
+        )
+    }
+
+    private fun recordDeviceError(device: DeviceEntry, code: String, pairingStatus: String? = null) {
+        val current = store.getRegistry().devices.firstOrNull { it.id == device.id } ?: device
+        store.updateDevice(
+            current.copy(
+                lastErrorCode = code,
+                pairingStatus = pairingStatus ?: current.pairingStatus
+            )
+        )
+    }
+
     private data class ProbeStatus(val online: Boolean, val port: Int?)
+    private class LgAuthorizationException(val code: String, message: String) : IllegalStateException(message)
     private data class SamsungIdentity(
         val name: String?,
         val modelName: String?,
@@ -1606,6 +1864,11 @@ class SamsungDirectTvClient(
     )
 
     companion object {
+        private val vestelContentTypes = listOf(
+            "text/plain; charset=ISO-8859-1",
+            "text/xml; charset=UTF-8"
+        )
+
         private val vestelLegacyKeyCodes = mapOf(
             "BUTTON_0" to "1000",
             "BUTTON_1" to "1001",

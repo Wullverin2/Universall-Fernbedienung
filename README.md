@@ -1,76 +1,82 @@
 # Universal Fernbedienung
 
-Android-App zur lokalen Steuerung kompatibler Smart-TVs im Heimnetz ohne zusätzliche Bridge.
+Android-App zur lokalen Steuerung kompatibler Smart-TVs im Heimnetz ohne zusaetzliche Bridge.
 
 ## Aktueller Stand
 
-Die App unterstützt derzeit:
+Die App unterstuetzt derzeit:
 
 - Samsung Smart TVs mit lokalem Remote-WebSocket und Wake-on-LAN
-- LG webOS TVs der letzten Jahre über lokale webOS-Verbindungen
-- Nabo / Vestel TVs über SmartCenter-Erkennung und SmartCenter-Fernbedienungsbefehle
+- LG webOS TVs der letzten Jahre ueber lokale webOS-Verbindungen
+- Nabo / Vestel TVs ueber SmartCenter-Erkennung und SmartCenter-Fernbedienungsbefehle
 
 ## Funktionen
 
-- TV-Geräte im Heimnetz scannen
-- erkannte Geräte lokal speichern
-- Gerät über Dropdown auswählen und aktiv schalten
+- TV-Geraete im Heimnetz scannen
+- erkannte Geraete lokal speichern
+- Geraet ueber Dropdown auswaehlen und aktiv schalten
 - Ein- und Ausschalten
-- Navigation, Lautstärke, Kanal, Guide, Info, Source
+- Navigation, Lautstaerke, Kanal, Guide, Info, Source
 - Ziffernblock und Teletext-Taste
 - Quellenwechsel
 - App-Starts, soweit das jeweilige TV-Modell lokale App-Kommandos akzeptiert
-- Diagnose-Ausgabe
+- Diagnose-Ausgabe mit Plattform, Capabilities, letztem Fehler und letztem erfolgreichen Befehl
 
 ## Samsung
 
 Samsung ist aktuell der am besten ausgebaute Modus.
 
-- Wake-on-LAN für Einschalten
-- WebSocket-Steuerung für Tasten
+- Wake-on-LAN fuer Einschalten
+- WebSocket-Steuerung fuer Tasten
 - App-Starts lokal
-- Beim ersten Zugriff muss am TV eventuell eine Freigabe bestätigt werden
+- Beim ersten Zugriff muss am TV eventuell eine Freigabe bestaetigt werden
 
 ## LG webOS
 
-LG wird lokal über webOS/SSAP angesprochen. Je nach Gerät kann beim ersten Zugriff ein Pairing-Dialog am TV erscheinen.
+LG wird lokal ueber webOS/SSAP angesprochen. Je nach Geraet kann beim ersten Zugriff ein Pairing-Dialog am TV erscheinen.
 
-- Scanner erkennt LG über SSDP/UPnP und die typischen webOS-Ports 3000/3001
-- nach dem Verbinden fragt die App Geräteinfos ab und speichert Modell, Firmware, webOS-SDK, Netzwerktyp und Wake-on-WiFi-Hinweise
-- Einschalten ist nur möglich, wenn Wake-on-LAN beziehungsweise Wake-on-WiFi am TV erlaubt ist und eine MAC-Adresse bekannt ist
+- Scanner erkennt LG ueber SSDP/UPnP und die typischen webOS-Ports 3000/3001
+- nach dem Verbinden fragt die App Geraeteinfos ab und speichert Modell, Firmware, webOS-SDK, Netzwerktyp und Wake-on-WiFi-Hinweise
+- Einschalten ist nur moeglich, wenn Wake-on-LAN beziehungsweise Wake-on-WiFi am TV erlaubt ist und eine MAC-Adresse bekannt ist
+- Pairing nutzt ein erweitertes Rechte-Manifest fuer geschuetzte Funktionen wie Pointer-/Tastensteuerung und App-Liste
+- bei LG-Fehlern wie `401` wird der gespeicherte Client-Key verworfen, damit der TV beim naechsten Verbinden neu nach Pairing fragen kann
+- Diagnose zeigt Pairing-Status, letzten Fehler und letzten erfolgreichen Befehl
 
 ## Nabo / Vestel SmartCenter
 
-Für Nabo/Vestel wurde die installierte Android-App `TV Smart Centre` nur für Interoperabilität untersucht. Die App nutzt bei passenden Geräten Vestel SmartCenter/SuperTVCommunicator statt reiner TiVo-Steuerung.
+Fuer Nabo/Vestel wurde die installierte Android-App `TV Smart Centre` nur fuer Interoperabilitaet untersucht. Die App nutzt bei passenden Geraeten Vestel SmartCenter/SuperTVCommunicator statt reiner TiVo-Steuerung.
 
-Die Universal-Fernbedienung sucht deshalb jetzt zusätzlich nach:
+Die Universal-Fernbedienung sucht nach:
 
 - DIAL/SSDP: `urn:dial-multiscreen-org:service:dial:1`
 - UPnP/MediaRenderer-Antworten mit Vestel/Nabo/SmartCenter-Hinweisen
 - Vestel-UDP-Discovery auf Port 4950 mit `vr_query_tv_version_782`
 - gezielter Vestel-Handshake auf Port 4950 mit `vr_query_tv`, um bei manchen TVs den echten SmartCenter-Steuerport zu ermitteln
+- validiertem SmartCenter-Endpunkt, meist `http://TV-IP:56789/apps/SmartCenter`
 - Vestel-WebSocket auf Port 7681
 - TiVo-IRCODE-Port 31339 nur noch als Fallback
 
 Tasten werden bevorzugt als SmartCenter-XML an `Application-URL + SmartCenter` gesendet. Wenn das nicht klappt, probiert die App den Vestel-WebSocket auf Port 7681 und danach den TiVo-Fallback.
 
-Wichtig: Nicht jedes Nabo/Vestel-Modell schaltet jede Funktion frei. App-Starts und Quellen können je nach Firmware andere Paketnamen oder Menüsequenzen benötigen.
+Der Scan legt Nabo/Vestel-Geraete nicht mehr allein wegen eines offenen Ports an. Ein Geraet muss ueber Vestel/SmartCenter-Hinweise, DIAL/UPnP oder einen validierten SmartCenter-Endpunkt plausibel sein. Niedrige HTTP-Statuszahlen wie `200` werden nicht mehr versehentlich als SmartCenter-Port gespeichert.
 
-MAC-Adressen werden von Nabo/Vestel über SmartCenter nicht immer direkt geliefert. Die App versucht zusätzlich, die MAC-Adresse aus Gerätebeschreibungen, UDP-Antworten und der ARP-Tabelle des Android-Geräts zu lernen. Wenn Android oder der Router diese Information nicht freigibt, bleibt die MAC unbekannt. Für normale Steuerung ist das egal; für Einschalten per Wake-on-LAN wird die MAC benötigt.
+Wichtig: Nicht jedes Nabo/Vestel-Modell schaltet jede Funktion frei. App-Starts und Quellen koennen je nach Firmware andere Paketnamen oder Menue-Sequenzen benoetigen.
 
-Wenn ein Nabo/Vestel-TV im Handy-Hotspot steuerbar ist, im vorhandenen WLAN aber nur gefunden wird und nicht reagiert, liegt das meist am Netzwerk und nicht am TV-Code. Prüfe dann im Router:
+MAC-Adressen werden von Nabo/Vestel ueber SmartCenter nicht immer direkt geliefert. Die App versucht zusaetzlich, die MAC-Adresse aus Geraetebeschreibungen, UDP-Antworten und der ARP-Tabelle des Android-Geraets zu lernen. Wenn Android oder der Router diese Information nicht freigibt, bleibt die MAC unbekannt. Fuer normale Steuerung ist das egal; fuer Einschalten per Wake-on-LAN wird die MAC benoetigt.
 
-- Gäste-WLAN deaktivieren oder Handy und TV ins normale WLAN bringen
-- AP-Isolation, Client-Isolation oder WLAN-Geräte dürfen nicht miteinander kommunizieren deaktivieren
+Wenn ein Nabo/Vestel-TV im Handy-Hotspot steuerbar ist, im vorhandenen WLAN aber nur gefunden wird und nicht reagiert, liegt das meist am Netzwerk und nicht am TV-Code. Pruefe dann im Router:
+
+- Gaeste-WLAN deaktivieren oder Handy und TV ins normale WLAN bringen
+- AP-Isolation, Client-Isolation oder "WLAN-Geraete duerfen nicht miteinander kommunizieren" deaktivieren
 - Multicast/UPnP/IGMP nicht blockieren
-- 2,4-GHz- und 5-GHz-Geräte dürfen miteinander kommunizieren
+- 2,4-GHz- und 5-GHz-Geraete duerfen miteinander kommunizieren
 - VLANs oder getrennte Mesh-/Repeater-Netze vermeiden
 
 ## Scannen in anderen WLANs
 
-Der Scanner ist nicht fest an `192.168.0.x` gebunden. Er ermittelt die lokalen IPv4-Netze des Smartphones und scannt diese Netze. Zusätzlich werden SSDP/UPnP- und Vestel-UDP-Antworten direkt übernommen, auch wenn sie außerhalb der geratenen Kandidatenliste liegen.
+Der Scanner ist nicht fest an `192.168.0.x` gebunden. Er ermittelt die lokalen IPv4-Netze des Smartphones und scannt diese Netze. Zusaetzlich werden SSDP/UPnP- und Vestel-UDP-Antworten direkt uebernommen, auch wenn sie ausserhalb der geratenen Kandidatenliste liegen.
 
-Wenn ein TV in einem Gäste-WLAN, VLAN oder anderen Layer-2-Netz hängt, werden Multicast und Broadcast oft vom Router blockiert. Dann kann kein lokaler Scanner zuverlässig Geräte finden.
+Wenn ein TV in einem Gaeste-WLAN, VLAN oder anderen Layer-2-Netz haengt, werden Multicast und Broadcast oft vom Router blockiert. Dann kann kein lokaler Scanner zuverlaessig Geraete finden.
 
 ## Build
 
@@ -78,7 +84,7 @@ Voraussetzungen:
 
 - Android Studio
 - Android SDK passend zum Projekt
-- aktiviertes USB-Debugging für Installationen per ADB
+- aktiviertes USB-Debugging fuer Installationen per ADB
 
 Build:
 
@@ -99,7 +105,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ## Deploy auf Galaxy S23 Ultra
 
-Für die lokale Entwicklung gibt es ein Skript, das die Debug-APK baut, auf dem S23 Ultra installiert und danach eine Kopie in den Download-Ordner des Smartphones legt:
+Fuer die lokale Entwicklung gibt es ein Skript, das die Debug-APK baut, auf dem S23 Ultra installiert und danach eine Kopie in den Download-Ordner des Smartphones legt:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\deploy-s23.ps1
@@ -109,15 +115,15 @@ Die APK liegt danach auf dem Smartphone unter:
 
 - `/sdcard/Download/Universal-Fernbedienung-debug.apk`
 
-Für eine komplette Neuinstallation:
+Fuer eine komplette Neuinstallation:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\deploy-s23.ps1 -Fresh
 ```
 
-## Prüfliste
+## Pruefliste
 
-Eine Test-Prüfliste liegt im Projekt unter:
+Eine Test-Pruefliste liegt im Projekt unter:
 
 - `docs/test-checklist.md`
 - `docs/Universal-Fernbedienung-Pruefliste.pdf`
@@ -131,17 +137,17 @@ node scripts\create-test-checklist-pdf.mjs
 ## Projektstruktur
 
 - `app/src/main/java/de/craftplay/samsungtvbridge/MainActivity.kt`
-  - Oberfläche
+  - Oberflaeche
 - `app/src/main/java/de/craftplay/samsungtvbridge/ui/MainViewModel.kt`
   - UI-Logik
 - `app/src/main/java/de/craftplay/samsungtvbridge/data/DirectTvStore.kt`
-  - lokale Gerätespeicherung und Mappings
+  - lokale Geraetespeicherung und Mappings
 - `app/src/main/java/de/craftplay/samsungtvbridge/data/SamsungDirectTvClient.kt`
-  - direkte TV-Kommunikation für Samsung, LG und Nabo/Vestel
+  - direkte TV-Kommunikation fuer Samsung, LG und Nabo/Vestel
 
 ## Wichtig
 
-- Die frühere Senderlisten-Funktion ist bewusst entfernt.
+- Die fruehere Senderlisten-Funktion ist bewusst entfernt.
 - Die App arbeitet lokal im Heimnetz.
-- Für Samsung ist die Unterstützung derzeit am stabilsten.
-- LG und Nabo/Vestel hängen stärker von Modell, Firmware, Wake-Einstellungen und lokalen Netzwerkfreigaben ab.
+- Fuer Samsung ist die Unterstuetzung derzeit am stabilsten.
+- LG und Nabo/Vestel haengen staerker von Modell, Firmware, Wake-Einstellungen und lokalen Netzwerkfreigaben ab.

@@ -41,6 +41,15 @@ class DirectTvStore(private val prefs: SharedPreferences) {
                 wakeOnWirelessLan = device.wakeOnWirelessLan ?: existing?.wakeOnWirelessLan,
                 controlUrl = device.controlUrl ?: existing?.controlUrl,
                 controlMethod = device.controlMethod ?: existing?.controlMethod,
+                platform = device.platform ?: existing?.platform,
+                supportsDial = device.supportsDial || existing?.supportsDial == true,
+                supportsNetworkRemote = device.supportsNetworkRemote || existing?.supportsNetworkRemote == true,
+                supportsWakeOnLan = device.supportsWakeOnLan || existing?.supportsWakeOnLan == true,
+                supportsSmartCenter = device.supportsSmartCenter || existing?.supportsSmartCenter == true,
+                supportsTiVoProfile = device.supportsTiVoProfile || existing?.supportsTiVoProfile == true,
+                lastErrorCode = device.lastErrorCode ?: existing?.lastErrorCode,
+                lastSuccessfulCommand = device.lastSuccessfulCommand ?: existing?.lastSuccessfulCommand,
+                pairingStatus = device.pairingStatus ?: existing?.pairingStatus,
                 firstSeenAt = existing?.firstSeenAt ?: device.firstSeenAt.ifBlank { now },
                 lastSeenAt = now,
                 missing = false
@@ -108,6 +117,15 @@ class DirectTvStore(private val prefs: SharedPreferences) {
             .apply()
     }
 
+    fun clearToken(deviceId: String) {
+        val tokens = loadTokens().toMutableMap()
+        if (tokens.remove(deviceId) != null) {
+            prefs.edit()
+                .putString(KEY_TOKENS, json.encodeToString(MapSerializer(String.serializer(), String.serializer()), tokens))
+                .apply()
+        }
+    }
+
     fun listSources(deviceType: String): List<SourceEntry> = when (deviceType.lowercase()) {
         "samsung" -> listOf(
             SourceEntry("HDMI1", listOf("hdmi 1", "konsole", "receiver"), listOf("KEY_SOURCE", "KEY_DOWN", "KEY_ENTER"), delayMs = 600, initialDelayMs = 900),
@@ -142,18 +160,19 @@ class DirectTvStore(private val prefs: SharedPreferences) {
         )
 
         "lg" -> listOf(
-            AppEntry("YouTube", "youtube.leanback.v4", aliases = listOf("youtube", "yt")),
-            AppEntry("Netflix", "netflix", aliases = listOf("netflix")),
-            AppEntry("Prime Video", "amazon", aliases = listOf("prime", "amazon prime", "prime video")),
-            AppEntry("Disney+", "disneyplus", aliases = listOf("disney", "disney+")),
-            AppEntry("Browser", "com.webos.app.browser", aliases = listOf("browser", "internet"))
+            AppEntry("YouTube", "youtube.leanback.v4", aliases = listOf("youtube", "yt"), lgAppIds = listOf("youtube.leanback.v4", "youtube")),
+            AppEntry("Netflix", "netflix", aliases = listOf("netflix"), lgAppIds = listOf("netflix")),
+            AppEntry("Prime Video", "amazon", aliases = listOf("prime", "amazon prime", "prime video"), lgAppIds = listOf("amazon", "amazon.leanback.v4")),
+            AppEntry("Disney+", "disneyplus", aliases = listOf("disney", "disney+"), lgAppIds = listOf("disneyplus")),
+            AppEntry("Browser", "com.webos.app.browser", aliases = listOf("browser", "internet"), lgAppIds = listOf("com.webos.app.browser"))
         )
 
         "tivo", "vestel" -> listOf(
-            AppEntry("YouTube", "YouTube", aliases = listOf("youtube", "yt")),
-            AppEntry("Netflix", "Netflix", aliases = listOf("netflix")),
-            AppEntry("Prime Video", "Amazon Prime Video", aliases = listOf("prime", "amazon prime", "prime video")),
-            AppEntry("Browser", "Browser", aliases = listOf("browser", "internet"))
+            AppEntry("YouTube", "YouTube", aliases = listOf("youtube", "yt"), dialNames = listOf("YouTube", "youtube")),
+            AppEntry("Netflix", "Netflix", aliases = listOf("netflix"), dialNames = listOf("Netflix", "netflix")),
+            AppEntry("Prime Video", "Amazon Prime Video", aliases = listOf("prime", "amazon prime", "prime video"), dialNames = listOf("AmazonVideo", "PrimeVideo", "Amazon Prime Video")),
+            AppEntry("Disney+", "Disney+", aliases = listOf("disney", "disney+"), dialNames = listOf("DisneyPlus", "Disney+")),
+            AppEntry("Browser", "Browser", aliases = listOf("browser", "internet"), dialNames = listOf("Browser"), macroKeys = listOf("KEY_HOME"))
         )
 
         else -> emptyList()

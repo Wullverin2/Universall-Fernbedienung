@@ -26,7 +26,11 @@ data class AppEntry(
     val appId: String? = null,
     val tizenAppId: String? = null,
     val aliases: List<String> = emptyList(),
-    val actionType: String = "NATIVE_LAUNCH"
+    val actionType: String = "NATIVE_LAUNCH",
+    val dialNames: List<String> = emptyList(),
+    val lgAppIds: List<String> = emptyList(),
+    val vestelKeys: List<String> = emptyList(),
+    val macroKeys: List<String> = emptyList()
 )
 
 @Serializable
@@ -44,6 +48,15 @@ data class DeviceEntry(
     val wakeOnWirelessLan: Boolean? = null,
     val controlUrl: String? = null,
     val controlMethod: String? = null,
+    val platform: String? = null,
+    val supportsDial: Boolean = false,
+    val supportsNetworkRemote: Boolean = false,
+    val supportsWakeOnLan: Boolean = false,
+    val supportsSmartCenter: Boolean = false,
+    val supportsTiVoProfile: Boolean = false,
+    val lastErrorCode: String? = null,
+    val lastSuccessfulCommand: String? = null,
+    val pairingStatus: String? = null,
     val firstSeenAt: String,
     val lastSeenAt: String,
     val missing: Boolean = false

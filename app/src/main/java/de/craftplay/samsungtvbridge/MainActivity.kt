@@ -344,6 +344,10 @@ private fun DevicesCard(
                             }
                             device.controlMethod?.let { Text("Steuerung: $it") }
                             device.controlUrl?.let { Text("Steueradresse: $it") }
+                            device.platform?.let { Text("Plattform: $it") }
+                            device.pairingStatus?.let { Text("Pairing: $it") }
+                            device.lastSuccessfulCommand?.let { Text("Letzter Erfolg: $it") }
+                            device.lastErrorCode?.let { Text("Letzter Fehler: $it", color = Color(0xFFFF9A9A)) }
                             Text(device.mac ?: "MAC unbekannt")
                         }
                     }
