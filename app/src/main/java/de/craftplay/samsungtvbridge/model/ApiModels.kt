@@ -56,6 +56,7 @@ data class DeviceEntry(
     val supportsTiVoProfile: Boolean = false,
     val lastErrorCode: String? = null,
     val lastSuccessfulCommand: String? = null,
+    val lastRequestUri: String? = null,
     val pairingStatus: String? = null,
     val firstSeenAt: String,
     val lastSeenAt: String,

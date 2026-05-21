@@ -1,5 +1,6 @@
 ﻿package de.craftplay.samsungtvbridge
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -346,6 +348,7 @@ private fun DevicesCard(
                             device.controlUrl?.let { Text("Steueradresse: $it") }
                             device.platform?.let { Text("Plattform: $it") }
                             device.pairingStatus?.let { Text("Pairing: $it") }
+                            device.lastRequestUri?.let { Text("Letzter Request: $it") }
                             device.lastSuccessfulCommand?.let { Text("Letzter Erfolg: $it") }
                             device.lastErrorCode?.let { Text("Letzter Fehler: $it", color = Color(0xFFFF9A9A)) }
                             Text(device.mac ?: "MAC unbekannt")
@@ -487,7 +490,21 @@ private fun DiagnosticsCard(output: String, onDiagnostics: () -> Unit) {
 
 @Composable
 private fun LogCard(messages: List<String>) {
+    val context = LocalContext.current
     SectionCard(title = "Log") {
+        OutlinedButton(
+            onClick = {
+                val text = messages.joinToString("\n").ifBlank { "Keine Logeintraege vorhanden." }
+                val intent = Intent(Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, "Universal Fernbedienung Diagnose-Log")
+                    .putExtra(Intent.EXTRA_TEXT, text)
+                context.startActivity(Intent.createChooser(intent, "Log teilen"))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Log teilen")
+        }
         if (messages.isEmpty()) {
             Text("Noch keine Aktionen.")
         } else {

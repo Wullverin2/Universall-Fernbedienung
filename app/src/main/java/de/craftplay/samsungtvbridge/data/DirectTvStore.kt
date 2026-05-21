@@ -49,6 +49,7 @@ class DirectTvStore(private val prefs: SharedPreferences) {
                 supportsTiVoProfile = device.supportsTiVoProfile || existing?.supportsTiVoProfile == true,
                 lastErrorCode = device.lastErrorCode ?: existing?.lastErrorCode,
                 lastSuccessfulCommand = device.lastSuccessfulCommand ?: existing?.lastSuccessfulCommand,
+                lastRequestUri = device.lastRequestUri ?: existing?.lastRequestUri,
                 pairingStatus = device.pairingStatus ?: existing?.pairingStatus,
                 firstSeenAt = existing?.firstSeenAt ?: device.firstSeenAt.ifBlank { now },
                 lastSeenAt = now,
@@ -135,7 +136,11 @@ class DirectTvStore(private val prefs: SharedPreferences) {
 
         "lg" -> listOf(
             SourceEntry("Home Dashboard", listOf("home", "dashboard"), listOf("KEY_HOME")),
-            SourceEntry("Live TV", listOf("tv", "fernsehen"), listOf("KEY_TV"))
+            SourceEntry("Live TV", listOf("tv", "fernsehen"), listOf("KEY_TV")),
+            SourceEntry("HDMI1", listOf("hdmi 1", "hdmi1"), emptyList()),
+            SourceEntry("HDMI2", listOf("hdmi 2", "hdmi2"), emptyList()),
+            SourceEntry("HDMI3", listOf("hdmi 3", "hdmi3"), emptyList()),
+            SourceEntry("HDMI4", listOf("hdmi 4", "hdmi4"), emptyList())
         )
 
         "tivo", "vestel" -> listOf(

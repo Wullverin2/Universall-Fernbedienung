@@ -18,6 +18,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -73,6 +74,19 @@ class SamsungDirectTvClient(
         .sslSocketFactory(insecureSslSocketFactory, insecureTrustManager)
         .hostnameVerifier(allHostsValid)
         .build()
+    private val lgStandardHttpClient = OkHttpClient.Builder()
+        .connectTimeout(2000, TimeUnit.MILLISECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+    private val lgInsecureHttpClient = OkHttpClient.Builder()
+        .connectTimeout(2000, TimeUnit.MILLISECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .sslSocketFactory(insecureSslSocketFactory, insecureTrustManager)
+        .hostnameVerifier(allHostsValid)
+        .build()
+    private val lgLaunchPointCache = mutableMapOf<String, List<LgLaunchPoint>>()
 
     suspend fun getStatus(): StatusResponse {
         val device = store.getActiveDevice()
@@ -159,13 +173,7 @@ class SamsungDirectTvClient(
     suspend fun setSource(name: String): ActionResponse = withSelectedDevice { device ->
         when (device.deviceType.lowercase()) {
             "lg" -> {
-                if (normalizeName(name) == normalizeName("Home Dashboard")) {
-                    lgSendKey(device, "KEY_HOME")
-                } else if (normalizeName(name) == normalizeName("Live TV")) {
-                    lgSendKey(device, "KEY_TV")
-                } else {
-                    throw IllegalStateException("Quelle für LG derzeit nicht unterstützt.")
-                }
+                lgSetSource(device, name)
             }
             "tivo", "vestel" -> {
                 val source = resolveSource(device.deviceType, name)
@@ -225,7 +233,9 @@ class SamsungDirectTvClient(
             )
             .put("lastErrorCode", device.lastErrorCode ?: JSONObject.NULL)
             .put("lastSuccessfulCommand", device.lastSuccessfulCommand ?: JSONObject.NULL)
+            .put("lastRequestUri", device.lastRequestUri ?: JSONObject.NULL)
             .put("pairingStatus", device.pairingStatus ?: JSONObject.NULL)
+            .put("lgClientKeyStored", if (device.deviceType.lowercase() == "lg") !store.getToken(device.id).isNullOrBlank() else JSONObject.NULL)
             .put("localIpv4", JSONArray(inferLocalIpv4Addresses()))
             .put("localSubnetPrefixes", JSONArray(inferSubnetPrefixes()))
             .put("vestelPorts", if (device.deviceType.lowercase() in setOf("tivo", "vestel")) vestelPortDiagnostics(device) else JSONObject.NULL)
@@ -262,10 +272,10 @@ class SamsungDirectTvClient(
             return DeviceEntry(
                 id = ssdpHint.udn ?: "lg:$ip",
                 ip = ip,
-                name = ssdpHint?.name ?: "[LG] $ip",
+                name = ssdpHint.name ?: "[LG] $ip",
                 deviceType = "lg",
-                modelName = ssdpHint?.modelName,
-                duid = ssdpHint?.udn,
+                modelName = ssdpHint.modelName,
+                duid = ssdpHint.udn,
                 platform = "LG_WEBOS",
                 supportsDial = false,
                 supportsNetworkRemote = true,
@@ -690,10 +700,12 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun lgLaunchApp(device: DeviceEntry, app: AppEntry) {
-        val candidates = (app.lgAppIds + listOfNotNull(app.appId)).distinct()
+        val launchPoints = lgListLaunchPoints(device)
+        val resolved = resolveLgLaunchPoint(launchPoints, app)
+        val candidates = listOfNotNull(resolved?.id) + (app.lgAppIds + listOfNotNull(app.appId)).distinct()
         if (candidates.isEmpty()) throw IllegalStateException("LG-App-ID fehlt.")
         var lastError: Throwable? = null
-        for (appId in candidates) {
+        for (appId in candidates.distinct()) {
             try {
                 lgRequest(
                     device,
@@ -706,6 +718,72 @@ class SamsungDirectTvClient(
             }
         }
         throw IllegalStateException(lastError?.message ?: "LG-App konnte nicht gestartet werden.")
+    }
+
+    private suspend fun lgSetSource(device: DeviceEntry, name: String) {
+        val normalized = normalizeName(name)
+        when (normalized) {
+            normalizeName("Home Dashboard") -> {
+                lgSendKey(device, "KEY_HOME")
+                return
+            }
+            normalizeName("Live TV") -> {
+                lgSendKey(device, "KEY_TV")
+                return
+            }
+        }
+
+        val payload = lgRequest(device, "ssap://tv/getExternalInputList").payload
+        val devices = payload?.optJSONArray("devices") ?: payload?.optJSONArray("inputs") ?: JSONArray()
+        val match = (0 until devices.length())
+            .mapNotNull { devices.optJSONObject(it) }
+            .firstOrNull { input ->
+                val searchable = listOfNotNull(
+                    input.optNonBlankString("id"),
+                    input.optNonBlankString("label"),
+                    input.optNonBlankString("name"),
+                    input.optNonBlankString("port"),
+                    input.optNonBlankString("appId")
+                ).joinToString(" ")
+                normalizeName(searchable).contains(normalized)
+            }
+            ?: throw IllegalStateException("LG-Eingang nicht gefunden: $name")
+
+        val inputId = match.optNonBlankString("id") ?: match.optNonBlankString("appId")
+            ?: throw IllegalStateException("LG-Eingang hat keine ID: $name")
+        lgRequest(device, "ssap://tv/switchInput", JSONObject().put("inputId", inputId))
+    }
+
+    private suspend fun lgListLaunchPoints(device: DeviceEntry): List<LgLaunchPoint> {
+        lgLaunchPointCache[device.id]?.let { return it }
+        val result = lgRequest(device, "ssap://com.webos.applicationManager/listLaunchPoints").payload
+        val launchPoints = result?.optJSONArray("launchPoints") ?: JSONArray()
+        val parsed = (0 until launchPoints.length()).mapNotNull { index ->
+            val item = launchPoints.optJSONObject(index) ?: return@mapNotNull null
+            val id = item.optNonBlankString("id")
+                ?: item.optNonBlankString("launchPointId")
+                ?: item.optNonBlankString("appId")
+                ?: return@mapNotNull null
+            LgLaunchPoint(
+                id = id,
+                title = item.optNonBlankString("title")
+                    ?: item.optNonBlankString("name")
+                    ?: item.optNonBlankString("appDescription")
+            )
+        }
+        lgLaunchPointCache[device.id] = parsed
+        return parsed
+    }
+
+    private fun resolveLgLaunchPoint(launchPoints: List<LgLaunchPoint>, app: AppEntry): LgLaunchPoint? {
+        val needles = (listOf(app.name) + app.aliases + app.lgAppIds + listOfNotNull(app.appId))
+            .map(::normalizeName)
+            .filter { it.isNotBlank() }
+        return launchPoints.firstOrNull { launchPoint ->
+            val title = normalizeName(launchPoint.title.orEmpty())
+            val id = normalizeName(launchPoint.id)
+            needles.any { needle -> title.contains(needle) || id.contains(needle) || needle.contains(title) }
+        }
     }
 
     private suspend fun lgSendKey(device: DeviceEntry, key: String): Int {
@@ -755,7 +833,7 @@ class SamsungDirectTvClient(
         val session = lgRequest(device, "ssap://com.webos.service.networkinput/getPointerInputSocket")
         val socketPath = session.payload?.optString("socketPath")
             ?: throw IllegalStateException("LG Pointer-Socket konnte nicht ermittelt werden.")
-        val client = if (socketPath.startsWith("wss://")) insecureHttpClient else standardHttpClient
+        val client = if (socketPath.startsWith("wss://")) lgInsecureHttpClient else lgStandardHttpClient
         val command = "type:button\nname:$pointerName\n\n"
         suspendCancellableCoroutine<Unit> { continuation ->
             var resumed = false
@@ -786,9 +864,12 @@ class SamsungDirectTvClient(
         val hadToken = !store.getToken(device.id).isNullOrBlank()
 
         repeat(if (hadToken) 2 else 1) { attempt ->
-            for (port in listOf(3000, 3001)) {
+            for (port in lgPorts) {
                 try {
-                    val result = connectLgAndRequest(device, port, uri, payload)
+                    recordDeviceRequest(device, uri, port)
+                    val result = withTimeout(if (store.getToken(device.id).isNullOrBlank()) 30000 else 15000) {
+                        connectLgAndRequest(device, port, uri, payload)
+                    }
                     recordDeviceSuccess(device, "LG $uri", pairingStatus = "gekoppelt")
                     return result
                 } catch (error: LgAuthorizationException) {
@@ -813,7 +894,7 @@ class SamsungDirectTvClient(
     private suspend fun connectLgAndRequest(device: DeviceEntry, port: Int, uri: String, payload: JSONObject): LgResult =
         suspendCancellableCoroutine { continuation ->
             val protocol = if (port == 3001) "wss" else "ws"
-            val client = if (port == 3001) insecureHttpClient else standardHttpClient
+            val client = if (port == 3001) lgInsecureHttpClient else lgStandardHttpClient
             val request = Request.Builder().url("$protocol://${device.ip}:$port").build()
             val requestId = UUID.randomUUID().toString()
             val storedKey = store.getToken(device.id)
@@ -948,7 +1029,7 @@ class SamsungDirectTvClient(
             ?: json.optString("errorCode").takeIf { it.isNotBlank() }
             ?: "LG_ERROR"
         val text = payload?.optString("errorText")?.takeIf { it.isNotBlank() }
-            ?: payload?.optString("error").takeIf { !it.isNullOrBlank() }
+            ?: payload?.optString("error")?.takeIf { it.isNotBlank() }
             ?: json.optString("error").takeIf { it.isNotBlank() }
             ?: json.toString()
         return if (code.contains("401") || text.contains("401") || text.contains("unauthorized", ignoreCase = true)) {
@@ -1830,6 +1911,15 @@ class SamsungDirectTvClient(
         )
     }
 
+    private fun recordDeviceRequest(device: DeviceEntry, uri: String, port: Int? = null) {
+        val current = store.getRegistry().devices.firstOrNull { it.id == device.id } ?: device
+        store.updateDevice(
+            current.copy(
+                lastRequestUri = if (port == null) uri else "$uri via $port"
+            )
+        )
+    }
+
     private fun recordDeviceError(device: DeviceEntry, code: String, pairingStatus: String? = null) {
         val current = store.getRegistry().devices.firstOrNull { it.id == device.id } ?: device
         store.updateDevice(
@@ -1851,6 +1941,7 @@ class SamsungDirectTvClient(
         val port: Int?
     )
 
+    private data class LgLaunchPoint(val id: String, val title: String?)
     private data class LgResult(val port: Int, val payload: JSONObject?)
     private data class SsdpIdentity(
         val ip: String,
@@ -1864,6 +1955,8 @@ class SamsungDirectTvClient(
     )
 
     companion object {
+        private val lgPorts = listOf(3001, 3000)
+
         private val vestelContentTypes = listOf(
             "text/plain; charset=ISO-8859-1",
             "text/xml; charset=UTF-8"

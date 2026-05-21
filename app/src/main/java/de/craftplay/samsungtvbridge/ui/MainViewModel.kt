@@ -105,15 +105,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun powerOn() = action("Wake-on-LAN gesendet.") { client.powerOn() }
+    fun powerOn() = action("Power On", "Wake-on-LAN senden", "Wake-on-LAN gesendet.") { client.powerOn() }
 
-    fun powerOff() = action("Ausschalten gesendet.") { client.powerOff() }
+    fun powerOff() = action("Power Off", "TV ausschalten", "Ausschalten gesendet.") { client.powerOff() }
 
-    fun sendKey(key: String) = action("Taste gesendet: $key") { client.sendRemoteKey(key) }
+    fun sendKey(key: String) = action("Button $key", describeRemoteKey(key), "Taste gesendet: $key") { client.sendRemoteKey(key) }
 
-    fun setSource(name: String) = action("Quelle gewechselt: $name") { client.setSource(name) }
+    fun setSource(name: String) = action("Quelle $name", "Eingang wechseln", "Quelle gewechselt: $name") { client.setSource(name) }
 
-    fun launchApp(name: String) = action("App gestartet: $name") { client.launchApp(name) }
+    fun launchApp(name: String) = action("App $name", "App starten", "App gestartet: $name") { client.launchApp(name) }
 
     fun loadDiagnostics() {
         execute("Diagnose wird geladen...") {
@@ -122,8 +122,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun action(successFallback: String, block: suspend () -> ActionResponse) {
-        execute(successFallback) {
+    private fun action(actionName: String, plannedFunction: String, successFallback: String, block: suspend () -> ActionResponse) {
+        execute("$actionName -> geplant: $plannedFunction") {
             val response = block()
             refreshStatusSilently()
             val message = response.message
@@ -134,6 +134,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ?: successFallback
             appendLog(message)
         }
+    }
+
+    private fun describeRemoteKey(key: String): String = when (key) {
+        "KEY_HOME" -> "Home oeffnen"
+        "KEY_RETURN" -> "Zurueck"
+        "KEY_MENU" -> "Menue oeffnen"
+        "KEY_SOURCE" -> "Eingangsquelle oeffnen"
+        "KEY_GUIDE" -> "TV-Guide oeffnen"
+        "KEY_INFO" -> "Info anzeigen"
+        "KEY_TTX_MIX" -> "Teletext"
+        "KEY_ENTER" -> "OK/Enter"
+        "KEY_UP" -> "Navigation hoch"
+        "KEY_DOWN" -> "Navigation runter"
+        "KEY_LEFT" -> "Navigation links"
+        "KEY_RIGHT" -> "Navigation rechts"
+        "KEY_VOLUP" -> "Lauter"
+        "KEY_VOLDOWN" -> "Leiser"
+        "KEY_MUTE" -> "Stumm schalten"
+        "KEY_CHUP" -> "Sender hoch"
+        "KEY_CHDOWN" -> "Sender runter"
+        "KEY_EXIT" -> "Beenden"
+        else -> "Remote-Taste senden"
     }
 
     private fun refreshStatusSilently() {
