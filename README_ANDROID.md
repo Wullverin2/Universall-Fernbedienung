@@ -13,6 +13,7 @@ Diese Android-App steuert kompatible Smart-TVs direkt im lokalen Netzwerk. Eine 
 - Diagnoseanzeige mit Plattform, Pairing-Status, letztem Request und letztem Fehler
 - persistentes Diagnose-Log mit Zeitstempel
 - herstellerabhaengiges Keymapping statt fest verdrahteter Samsung-Tastencodes
+- lokale Lerndatenbank mit JSON-Export fuer spaetere Modell-Auswertung
 
 ## Keymapping und App-Starts
 
@@ -23,6 +24,21 @@ Die App verwendet intern neutrale Tasten wie `HOME`, `OK`, `VOLUME_UP`, `TELETEX
 - Nabo/Vestel: SmartCenter-Buttons und TiVo-IRCODE-Fallback
 
 Samsung-App-Buttons nutzen mehrere IDs pro App, zuerst die Tizen/SDB-Paket-ID und danach die numerische Samsung-App-ID. Das verbessert die MU-Serie und aehnliche Tizen-Modelle.
+
+## LG-Pairing
+
+Ein gespeicherter LG-webOS-Client-Key wird nicht mehr automatisch geloescht, wenn ein Befehl fehlschlaegt oder LG `401/Unauthorized` meldet. Das Pairing bleibt bestehen. Geloescht wird der Key nur, wenn das LG-Geraet aus der Geraeteliste entfernt wird.
+
+## Lerndatenbank
+
+Jede Aktion wird lokal protokolliert:
+
+- Geraetetyp, Plattform, Modell und IP
+- Aktion und normalisierte Eingabe
+- Erfolg oder Fehler
+- Methode, Port, App-ID und Fehlertext
+
+Die Karte `Lerndatenbank` zeigt eine Zusammenfassung nach Modell und Eingabe. Mit `JSON exportieren` koennen die Daten spaeter fuer eine zentrale Kompatibilitaetsdatenbank genutzt werden. Tokens und Client-Keys werden nicht exportiert.
 
 ## Diagnose-Log
 

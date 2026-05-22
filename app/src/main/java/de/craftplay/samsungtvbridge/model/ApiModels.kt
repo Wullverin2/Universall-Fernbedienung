@@ -89,3 +89,46 @@ data class DeviceScanSummary(
     val scannedCandidateCount: Int,
     val foundCount: Int
 )
+
+@Serializable
+data class LearningEntry(
+    val id: String,
+    val timestamp: String,
+    val deviceId: String,
+    val deviceName: String,
+    val deviceType: String,
+    val platform: String? = null,
+    val modelName: String? = null,
+    val firmwareVersion: String? = null,
+    val sdkVersion: String? = null,
+    val ip: String,
+    val actionName: String,
+    val plannedFunction: String,
+    val input: String,
+    val normalizedInput: String,
+    val success: Boolean,
+    val method: String? = null,
+    val port: Int? = null,
+    val appId: String? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+
+@Serializable
+data class LearningSummary(
+    val total: Int = 0,
+    val successes: Int = 0,
+    val failures: Int = 0,
+    val byDeviceType: List<LearningBucket> = emptyList(),
+    val byModel: List<LearningBucket> = emptyList(),
+    val byInput: List<LearningBucket> = emptyList(),
+    val recent: List<LearningEntry> = emptyList()
+)
+
+@Serializable
+data class LearningBucket(
+    val name: String,
+    val total: Int,
+    val successes: Int,
+    val failures: Int
+)

@@ -55,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.craftplay.samsungtvbridge.model.AppEntry
 import de.craftplay.samsungtvbridge.model.DeviceEntry
+import de.craftplay.samsungtvbridge.model.LearningBucket
+import de.craftplay.samsungtvbridge.model.LearningSummary
 import de.craftplay.samsungtvbridge.model.SourceEntry
 import de.craftplay.samsungtvbridge.ui.MainUiState
 import de.craftplay.samsungtvbridge.ui.MainViewModel
@@ -88,6 +90,8 @@ class MainActivity : ComponentActivity() {
                     onSource = viewModel::setSource,
                     onApp = viewModel::launchApp,
                     onDiagnostics = viewModel::loadDiagnostics,
+                    onReloadLearning = viewModel::reloadLearningData,
+                    onClearLearning = viewModel::clearLearningData,
                     onReloadLog = viewModel::reloadPersistentLog,
                     onClearLog = viewModel::clearPersistentLog
                 )
@@ -112,6 +116,8 @@ private fun UniversalRemoteApp(
     onSource: (String) -> Unit,
     onApp: (String) -> Unit,
     onDiagnostics: () -> Unit,
+    onReloadLearning: () -> Unit,
+    onClearLearning: () -> Unit,
     onReloadLog: () -> Unit,
     onClearLog: () -> Unit
 ) {
@@ -168,6 +174,14 @@ private fun UniversalRemoteApp(
                     }
                 }
                 item { DiagnosticsCard(state.diagnosticsOutput, onDiagnostics) }
+                item {
+                    LearningCard(
+                        summary = state.learningSummary,
+                        exportJson = state.learningExportJson,
+                        onReloadLearning = onReloadLearning,
+                        onClearLearning = onClearLearning
+                    )
+                }
                 item {
                     LogCard(
                         messages = state.messageLog,
@@ -497,6 +511,75 @@ private fun DiagnosticsCard(output: String, onDiagnostics: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall
             )
         }
+    }
+}
+
+@Composable
+private fun LearningCard(
+    summary: LearningSummary,
+    exportJson: String,
+    onReloadLearning: () -> Unit,
+    onClearLearning: () -> Unit
+) {
+    val context = LocalContext.current
+    SectionCard(title = "Lerndatenbank") {
+        Text("Gesamt: ${summary.total} | Erfolg: ${summary.successes} | Fehler: ${summary.failures}")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onReloadLearning, modifier = Modifier.weight(1f)) {
+                Text("Neu laden")
+            }
+            OutlinedButton(onClick = onClearLearning, modifier = Modifier.weight(1f)) {
+                Text("Leeren")
+            }
+        }
+        OutlinedButton(
+            onClick = {
+                val intent = Intent(Intent.ACTION_SEND)
+                    .setType("application/json")
+                    .putExtra(Intent.EXTRA_SUBJECT, "Universal Fernbedienung Lerndatenbank")
+                    .putExtra(Intent.EXTRA_TEXT, exportJson.ifBlank { "[]" })
+                context.startActivity(Intent.createChooser(intent, "Lerndaten exportieren"))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("JSON exportieren")
+        }
+
+        if (summary.total == 0) {
+            Text("Noch keine Lerndaten vorhanden.")
+            return@SectionCard
+        }
+
+        LearningBucketList("Nach Modell", summary.byModel.take(5))
+        LearningBucketList("Nach Eingabe", summary.byInput.take(8))
+
+        Text("Letzte Eingaben", fontWeight = FontWeight.SemiBold)
+        summary.recent.take(8).forEach { entry ->
+            val color = if (entry.success) Color(0xFF86D6A3) else Color(0xFFFF9A9A)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF10141B), RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text("${if (entry.success) "OK" else "FEHLER"} | ${entry.deviceType} | ${entry.modelName ?: "Modell unbekannt"}", color = color)
+                Text("${entry.actionName} -> ${entry.normalizedInput}", style = MaterialTheme.typography.bodySmall)
+                entry.error?.let { Text(it, color = Color(0xFFFF9A9A), style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LearningBucketList(title: String, buckets: List<LearningBucket>) {
+    if (buckets.isEmpty()) return
+    Text(title, fontWeight = FontWeight.SemiBold)
+    buckets.forEach { bucket ->
+        Text(
+            "${bucket.name}: ${bucket.successes}/${bucket.total} erfolgreich, ${bucket.failures} Fehler",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 

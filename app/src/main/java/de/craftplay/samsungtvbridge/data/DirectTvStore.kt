@@ -4,6 +4,9 @@ import android.content.SharedPreferences
 import de.craftplay.samsungtvbridge.model.AppEntry
 import de.craftplay.samsungtvbridge.model.DeviceEntry
 import de.craftplay.samsungtvbridge.model.DeviceRegistryResponse
+import de.craftplay.samsungtvbridge.model.LearningBucket
+import de.craftplay.samsungtvbridge.model.LearningEntry
+import de.craftplay.samsungtvbridge.model.LearningSummary
 import de.craftplay.samsungtvbridge.model.SourceEntry
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -98,6 +101,7 @@ class DirectTvStore(private val prefs: SharedPreferences) {
         val nextActive = if (registry.activeDeviceId == deviceId) null else registry.activeDeviceId
         val nextRegistry = DeviceRegistryResponse(activeDeviceId = nextActive, devices = nextDevices)
         saveRegistry(nextRegistry)
+        clearToken(deviceId)
         return nextRegistry
     }
 
@@ -125,6 +129,29 @@ class DirectTvStore(private val prefs: SharedPreferences) {
                 .putString(KEY_TOKENS, json.encodeToString(MapSerializer(String.serializer(), String.serializer()), tokens))
                 .apply()
         }
+    }
+
+    fun addLearningEntry(entry: LearningEntry): LearningSummary {
+        val entries = loadLearningEntries()
+            .plus(entry)
+            .takeLast(MAX_LEARNING_ENTRIES)
+        saveLearningEntries(entries)
+        return summarizeLearning(entries)
+    }
+
+    fun getLearningEntries(): List<LearningEntry> = loadLearningEntries()
+
+    fun getLearningSummary(): LearningSummary = summarizeLearning(loadLearningEntries())
+
+    fun getLearningExportJson(successOnly: Boolean = false): String {
+        val entries = loadLearningEntries()
+            .filter { !successOnly || it.success }
+        return json.encodeToString(ListSerializer(LearningEntry.serializer()), entries)
+    }
+
+    fun clearLearningEntries(): LearningSummary {
+        saveLearningEntries(emptyList())
+        return LearningSummary()
     }
 
     fun listSources(deviceType: String): List<SourceEntry> = when (deviceType.lowercase()) {
@@ -253,9 +280,64 @@ class DirectTvStore(private val prefs: SharedPreferences) {
         }.getOrDefault(emptyMap())
     }
 
+    private fun loadLearningEntries(): List<LearningEntry> {
+        return runCatching {
+            json.decodeFromString(
+                ListSerializer(LearningEntry.serializer()),
+                prefs.getString(KEY_LEARNING_ENTRIES, "[]").orEmpty()
+            )
+        }.getOrDefault(emptyList())
+    }
+
+    private fun saveLearningEntries(entries: List<LearningEntry>) {
+        prefs.edit()
+            .putString(KEY_LEARNING_ENTRIES, json.encodeToString(ListSerializer(LearningEntry.serializer()), entries))
+            .apply()
+    }
+
+    private fun summarizeLearning(entries: List<LearningEntry>): LearningSummary {
+        fun bucket(name: String, group: List<LearningEntry>) = LearningBucket(
+            name = name,
+            total = group.size,
+            successes = group.count { it.success },
+            failures = group.count { !it.success }
+        )
+
+        val byDeviceType = entries
+            .groupBy { it.deviceType.ifBlank { "unknown" } }
+            .map { (name, group) -> bucket(name, group) }
+            .sortedWith(compareByDescending<LearningBucket> { it.failures }.thenByDescending { it.total })
+
+        val byModel = entries
+            .groupBy { entry ->
+                listOfNotNull(entry.deviceType, entry.modelName, entry.platform)
+                    .joinToString(" / ")
+                    .ifBlank { "unknown" }
+            }
+            .map { (name, group) -> bucket(name, group) }
+            .sortedWith(compareByDescending<LearningBucket> { it.failures }.thenByDescending { it.total })
+
+        val byInput = entries
+            .groupBy { "${it.actionName}: ${it.normalizedInput}" }
+            .map { (name, group) -> bucket(name, group) }
+            .sortedWith(compareByDescending<LearningBucket> { it.failures }.thenByDescending { it.total })
+
+        return LearningSummary(
+            total = entries.size,
+            successes = entries.count { it.success },
+            failures = entries.count { !it.success },
+            byDeviceType = byDeviceType,
+            byModel = byModel,
+            byInput = byInput,
+            recent = entries.takeLast(30).asReversed()
+        )
+    }
+
     companion object {
+        private const val MAX_LEARNING_ENTRIES = 1500
         private const val KEY_DEVICES = "direct_devices"
         private const val KEY_ACTIVE_DEVICE_ID = "direct_active_device_id"
         private const val KEY_TOKENS = "direct_tokens"
+        private const val KEY_LEARNING_ENTRIES = "learning_entries"
     }
 }

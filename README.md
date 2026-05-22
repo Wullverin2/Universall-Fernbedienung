@@ -23,6 +23,7 @@ Die App unterstuetzt derzeit:
 - Diagnose-Ausgabe mit Plattform, Capabilities, letztem Fehler und letztem erfolgreichen Befehl
 - persistentes Diagnose-Log mit Zeitstempel, das per ADB vom Smartphone ausgelesen werden kann
 - herstellerabhaengiges Keymapping fuer Samsung, LG webOS und Nabo/Vestel
+- lokale Lerndatenbank fuer erfolgreiche und fehlgeschlagene Eingaben pro Hersteller, Modell und Plattform
 
 ## Keymapping
 
@@ -33,6 +34,21 @@ Die Oberflaeche sendet keine Samsung-spezifischen Tastencodes mehr direkt. Butto
 - Nabo/Vestel: SmartCenter-Buttons wie `BUTTON_HOME`, `BUTTON_OK`, `BUTTON_VOL_UP`; TiVo-IRCODE bleibt Fallback
 
 Samsung-App-Starts probieren zuerst den WebSocket-App-Launch ueber `ed.apps.launch` mit den per SDB bekannten Tizen-Paket-IDs und danach den HTTP-Endpunkt `/api/v2/applications/...`. Das ist besonders fuer aeltere MU/Tizen-Modelle wichtig.
+
+## LG-Pairing
+
+LG-webOS-Client-Keys bleiben auch bei fehlgeschlagenen Befehlen oder 401/Unauthorized-Antworten gespeichert. Der Key wird nur geloescht, wenn das LG-Geraet in der App entfernt wird. Das verhindert, dass eine einzelne fehlerhafte Eingabe ein bereits funktionierendes Pairing kaputt macht.
+
+## Lerndatenbank
+
+Die App protokolliert jede Fernbedienungsaktion lokal als Lerndatensatz:
+
+- Hersteller/Geraetetyp, Plattform, Modell, Firmware/webOS-Version
+- Aktion, geplante Funktion und normalisierte Eingabe
+- Erfolg oder Fehler
+- Methode, Port, App-ID und Fehlertext, soweit vorhanden
+
+In der App gibt es die Karte `Lerndatenbank` mit Zusammenfassung nach Modell und Eingabe. Ueber `JSON exportieren` koennen die Daten geteilt und spaeter in eine zentrale Support-Datenbank uebernommen werden. Die Daten sind lokal und enthalten keine Tokens oder LG-Client-Keys.
 
 ## Samsung
 
@@ -185,6 +201,8 @@ node scripts\create-test-checklist-pdf.mjs
   - persistente Diagnose-Logdatei fuer App-Nutzung und ADB-Auswertung
 - `app/src/main/java/de/craftplay/samsungtvbridge/data/TvKeyMapping.kt`
   - zentrale Uebersetzung neutraler Fernbedienungstasten in Hersteller-Codes
+- `app/src/main/java/de/craftplay/samsungtvbridge/model/ApiModels.kt`
+  - Datenmodelle fuer lokale Lerndatenbank und Geraeteprofile
 
 ## Wichtig
 

@@ -9,11 +9,14 @@ import de.craftplay.samsungtvbridge.data.PersistentAppLogger
 import de.craftplay.samsungtvbridge.data.SamsungDirectTvClient
 import de.craftplay.samsungtvbridge.data.TvKeyMapping
 import de.craftplay.samsungtvbridge.model.ActionResponse
+import de.craftplay.samsungtvbridge.model.LearningEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val store = DirectTvStore(application.getSharedPreferences("universal_remote", 0))
@@ -28,7 +31,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             devices = store.getRegistry(),
             messageLog = persistentLogger.readRecentLines(),
             logFileInfo = persistentLogger.fileDescription(),
-            logLineCount = persistentLogger.lineCount()
+            logLineCount = persistentLogger.lineCount(),
+            learningSummary = store.getLearningSummary(),
+            learningExportJson = store.getLearningExportJson()
         )
     )
         private set
@@ -80,14 +85,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         execute("TVs werden gesucht...") {
             val (registry, summary) = client.scanDevices()
             uiState.value = uiState.value.copy(devices = registry)
-            appendLog("Scan abgeschlossen: ${summary.foundCount} Gerät(e) gefunden.")
+            appendLog("Scan abgeschlossen: ${summary.foundCount} GerÃ¤t(e) gefunden.")
             refreshStatusSilently()
         }
     }
 
     fun loadDevices() {
         uiState.value = uiState.value.copy(devices = client.getRegistry())
-        appendLog("Geräteliste geladen.")
+        appendLog("GerÃ¤teliste geladen.")
     }
 
     fun selectDevice(deviceId: String, name: String) {
@@ -99,9 +104,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sources = listSourcesForActiveDevice(),
                 apps = listAppsForActiveDevice()
             )
-            appendLog("TV ausgewählt: $name")
+            appendLog("TV ausgewÃ¤hlt: $name")
         }.onFailure {
-            appendLog(it.message ?: "TV konnte nicht ausgewählt werden.", true)
+            appendLog(it.message ?: "TV konnte nicht ausgewÃ¤hlt werden.", true)
         }
     }
 
@@ -135,6 +140,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun reloadLearningData() {
+        uiState.value = uiState.value.copy(
+            learningSummary = store.getLearningSummary(),
+            learningExportJson = store.getLearningExportJson()
+        )
+        appendLog("Lerndatenbank aktualisiert.")
+    }
+
+    fun clearLearningData() {
+        uiState.value = uiState.value.copy(
+            learningSummary = store.clearLearningEntries(),
+            learningExportJson = store.getLearningExportJson()
+        )
+        appendLog("Lerndatenbank wurde geleert.")
+    }
+
     fun reloadPersistentLog() {
         uiState.value = uiState.value.copy(
             messageLog = persistentLogger.readRecentLines(),
@@ -154,25 +175,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun action(actionName: String, plannedFunction: String, successFallback: String, block: suspend () -> ActionResponse) {
-        execute("$actionName -> geplant: $plannedFunction") {
-            val response = block()
-            refreshStatusSilently()
-            val message = response.message
-                ?: response.app?.let { "App gestartet: $it" }
-                ?: response.source?.let { "Quelle gewechselt: $it" }
-                ?: response.key?.let { "Taste gesendet: $it" }
-                ?: response.name?.let { "Aktion ausgeführt: $it" }
-                ?: successFallback
-            appendLog(message)
+        viewModelScope.launch {
+            var response: ActionResponse? = null
+            try {
+                uiState.value = uiState.value.copy(isBusy = true)
+                appendLog("$actionName -> geplant: $plannedFunction")
+                response = block()
+                refreshStatusSilently()
+                val message = response.message
+                    ?: response.app?.let { "App gestartet: $it" }
+                    ?: response.source?.let { "Quelle gewechselt: $it" }
+                    ?: response.key?.let { "Taste gesendet: $it" }
+                    ?: response.name?.let { "Aktion ausgeführt: $it" }
+                    ?: successFallback
+                recordLearning(actionName, plannedFunction, success = true, response = response, error = null)
+                appendLog(message)
+            } catch (error: Exception) {
+                recordLearning(actionName, plannedFunction, success = false, response = response, error = error)
+                appendLog(error.message ?: "Unbekannter Fehler", true)
+            } finally {
+                uiState.value = uiState.value.copy(isBusy = false)
+            }
+        }
+    }
+
+    private fun recordLearning(
+        actionName: String,
+        plannedFunction: String,
+        success: Boolean,
+        response: ActionResponse?,
+        error: Exception?
+    ) {
+        val device = store.getActiveDevice() ?: return
+        val input = response?.key
+            ?: response?.source
+            ?: response?.app
+            ?: response?.name
+            ?: actionName
+        val normalizedInput = normalizeLearningInput(actionName, input)
+        val entry = LearningEntry(
+            id = UUID.randomUUID().toString(),
+            timestamp = Instant.now().toString(),
+            deviceId = device.id,
+            deviceName = device.name,
+            deviceType = device.deviceType,
+            platform = device.platform,
+            modelName = device.modelName,
+            firmwareVersion = device.firmwareVersion,
+            sdkVersion = device.sdkVersion,
+            ip = device.ip,
+            actionName = actionName,
+            plannedFunction = plannedFunction,
+            input = input,
+            normalizedInput = normalizedInput,
+            success = success,
+            method = response?.method ?: device.lastRequestUri ?: device.lastSuccessfulCommand,
+            port = response?.port,
+            appId = response?.appId,
+            message = response?.message,
+            error = error?.message?.take(500)
+        )
+        uiState.value = uiState.value.copy(
+            learningSummary = store.addLearningEntry(entry),
+            learningExportJson = store.getLearningExportJson()
+        )
+    }
+
+    private fun normalizeLearningInput(actionName: String, input: String): String {
+        return when {
+            actionName.startsWith("Button ") -> TvKeyMapping.generic(input)
+            actionName.startsWith("Power ") -> actionName.uppercase().replace(" ", "_")
+            else -> input.trim().lowercase()
         }
     }
 
     private fun describeRemoteKey(key: String): String = when (TvKeyMapping.generic(key)) {
-        "HOME" -> "Home öffnen"
-        "BACK" -> "Zurück"
-        "MENU" -> "Menü öffnen"
-        "SOURCE" -> "Eingangsquelle öffnen"
-        "GUIDE" -> "TV-Guide öffnen"
+        "HOME" -> "Home Ã¶ffnen"
+        "BACK" -> "ZurÃ¼ck"
+        "MENU" -> "MenÃ¼ Ã¶ffnen"
+        "SOURCE" -> "Eingangsquelle Ã¶ffnen"
+        "GUIDE" -> "TV-Guide Ã¶ffnen"
         "INFO" -> "Info anzeigen"
         "TELETEXT" -> "Teletext"
         "OK" -> "OK/Enter"

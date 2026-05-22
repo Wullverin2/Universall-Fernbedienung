@@ -890,7 +890,7 @@ class SamsungDirectTvClient(
         var lastError: Throwable? = null
         val hadToken = !store.getToken(device.id).isNullOrBlank()
 
-        repeat(if (hadToken) 2 else 1) { attempt ->
+        repeat(if (hadToken) 2 else 1) {
             for (port in lgPorts) {
                 try {
                     recordDeviceRequest(device, uri, port)
@@ -901,11 +901,7 @@ class SamsungDirectTvClient(
                     return result
                 } catch (error: LgAuthorizationException) {
                     lastError = error
-                    recordDeviceError(device, error.code, "LG Pairing ungültig")
-                    if (hadToken && attempt == 0) {
-                        store.clearToken(device.id)
-                        break
-                    }
+                    recordDeviceError(device, error.code, "LG Pairing gespeichert, aber Anfrage abgelehnt")
                 } catch (error: Throwable) {
                     lastError = error
                 }
