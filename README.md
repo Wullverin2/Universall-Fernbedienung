@@ -33,7 +33,7 @@ Die Oberflaeche sendet keine Samsung-spezifischen Tastencodes mehr direkt. Butto
 - LG webOS: SSAP-Audio-/TV-Kommandos und Pointer-Input-Socket-Namen wie `HOME`, `ENTER`, `VOLUMEUP`
 - Nabo/Vestel: SmartCenter-Buttons wie `BUTTON_HOME`, `BUTTON_OK`, `BUTTON_VOL_UP`; TiVo-IRCODE bleibt Fallback
 
-Samsung-App-Starts probieren zuerst den WebSocket-App-Launch ueber `ed.apps.launch` mit den per SDB bekannten Tizen-Paket-IDs und danach den HTTP-Endpunkt `/api/v2/applications/...`. Das ist besonders fuer aeltere MU/Tizen-Modelle wichtig.
+Samsung-App-Starts nutzen fuer die MU-Serie wieder zuerst den zuvor funktionierenden HTTP-Endpunkt `/api/v2/applications/...` auf Port 8001 und danach 8002. Erst wenn dieser Weg fehlschlaegt, wird der WebSocket-App-Launch ueber `ed.apps.launch` als Fallback probiert. Das verhindert, dass ein erfolgreich gesendetes WebSocket-Kommando faelschlich als gestartete App gewertet wird.
 
 ## LG-Pairing
 

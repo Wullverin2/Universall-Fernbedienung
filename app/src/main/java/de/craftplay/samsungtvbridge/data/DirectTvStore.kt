@@ -182,52 +182,52 @@ class DirectTvStore(private val prefs: SharedPreferences) {
         "samsung" -> listOf(
             AppEntry(
                 name = "YouTube",
-                appId = "111299001912",
+                appId = "9Ur5IzDKqV.TizenYouTube",
                 tizenAppId = "9Ur5IzDKqV.TizenYouTube",
                 aliases = listOf("youtube", "yt"),
-                samsungAppIds = listOf("9Ur5IzDKqV.TizenYouTube", "111299001912")
+                samsungAppIds = listOf("9Ur5IzDKqV.TizenYouTube")
             ),
             AppEntry(
                 name = "Netflix",
                 appId = "11101200001",
                 tizenAppId = "RN1MCdNq8t.Netflix",
                 aliases = listOf("netflix"),
-                samsungAppIds = listOf("RN1MCdNq8t.Netflix", "11101200001")
+                samsungAppIds = listOf("11101200001", "RN1MCdNq8t.Netflix")
             ),
             AppEntry(
                 name = "Prime Video",
                 appId = "3201512006785",
                 tizenAppId = "evKhCgZelL.AmazonIgnitionLauncher2",
                 aliases = listOf("prime", "amazon prime", "prime video"),
-                samsungAppIds = listOf("evKhCgZelL.AmazonIgnitionLauncher2", "3201512006785")
+                samsungAppIds = listOf("3201512006785", "evKhCgZelL.AmazonIgnitionLauncher2")
             ),
             AppEntry(
                 name = "Crunchyroll",
                 appId = "3202302030097",
                 tizenAppId = "OGLLvqej7u.CrunchyrollWebApp",
                 aliases = listOf("crunchyroll", "anime"),
-                samsungAppIds = listOf("OGLLvqej7u.CrunchyrollWebApp", "3202302030097")
+                samsungAppIds = listOf("3202302030097", "OGLLvqej7u.CrunchyrollWebApp")
             ),
             AppEntry(
                 name = "Sky X",
                 appId = "3201812017464",
                 tizenAppId = "J0zX4W0EmB.SkyX",
                 aliases = listOf("sky x", "skyx"),
-                samsungAppIds = listOf("J0zX4W0EmB.SkyX", "3201812017464")
+                samsungAppIds = listOf("3201812017464", "J0zX4W0EmB.SkyX")
             ),
             AppEntry(
                 name = "Joyn",
                 appId = "3202106024013",
                 tizenAppId = "2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT",
                 aliases = listOf("joyn"),
-                samsungAppIds = listOf("2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT", "3202106024013")
+                samsungAppIds = listOf("3202106024013", "2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT")
             ),
             AppEntry(
                 name = "Plex",
                 appId = "3201512006963",
                 tizenAppId = "kIciSQlYEM.plex",
                 aliases = listOf("plex"),
-                samsungAppIds = listOf("kIciSQlYEM.plex", "3201512006963")
+                samsungAppIds = listOf("3201512006963", "kIciSQlYEM.plex")
             ),
             AppEntry(
                 name = "simpliTV",

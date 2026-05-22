@@ -488,7 +488,7 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun samsungLaunchApp(device: DeviceEntry, app: AppEntry) {
-        val candidates = (app.samsungAppIds + listOfNotNull(app.tizenAppId, app.appId))
+        val candidates = (listOfNotNull(app.appId, app.tizenAppId) + app.samsungAppIds)
             .filter { it.isNotBlank() }
             .distinct()
         if (candidates.isEmpty()) {
@@ -496,18 +496,6 @@ class SamsungDirectTvClient(
         }
 
         var lastError: Throwable? = null
-        for (appId in candidates) {
-            for (port in listOf(8002, 8001)) {
-                try {
-                    samsungLaunchAppWebSocket(device, appId, port, app.actionType)
-                    recordDeviceSuccess(device, "Samsung App ${app.name} via WebSocket $appId")
-                    return
-                } catch (error: Throwable) {
-                    lastError = error
-                }
-            }
-        }
-
         for (appId in candidates) {
             for (secure in listOf(false, true)) {
                 try {
@@ -525,6 +513,18 @@ class SamsungDirectTvClient(
                         }
                     }
                     recordDeviceSuccess(device, "Samsung App ${app.name} via HTTP $appId")
+                    return
+                } catch (error: Throwable) {
+                    lastError = error
+                }
+            }
+        }
+
+        for (appId in candidates) {
+            for (port in listOf(8002, 8001)) {
+                try {
+                    samsungLaunchAppWebSocket(device, appId, port, app.actionType)
+                    recordDeviceSuccess(device, "Samsung App ${app.name} via WebSocket $appId")
                     return
                 } catch (error: Throwable) {
                     lastError = error
