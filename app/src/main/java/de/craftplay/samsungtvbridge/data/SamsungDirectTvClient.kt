@@ -186,12 +186,19 @@ class SamsungDirectTvClient(
 
     suspend fun launchApp(name: String): ActionResponse = withSelectedDevice { device ->
         val app = resolveApp(device.deviceType, name)
+        var launchResult: SamsungLaunchResult? = null
         when (device.deviceType.lowercase()) {
             "lg" -> lgLaunchApp(device, app)
             "tivo", "vestel" -> vestelLaunchApp(device, app)
-            else -> samsungLaunchApp(device, app)
+            else -> launchResult = samsungLaunchApp(device, app)
         }
-        ActionResponse(message = "App gestartet: ${app.name}", app = app.name, appId = app.appId)
+        ActionResponse(
+            message = "App gestartet: ${app.name}",
+            app = app.name,
+            appId = launchResult?.appId ?: app.appId,
+            method = launchResult?.method,
+            port = launchResult?.port
+        )
     }
 
     suspend fun getDiagnostics(): String {
@@ -487,65 +494,121 @@ class SamsungDirectTvClient(
         samsungSendSequence(device, source.keys, source.delayMs, source.initialDelayMs)
     }
 
-    private suspend fun samsungLaunchApp(device: DeviceEntry, app: AppEntry) {
-        val candidates = (listOfNotNull(app.appId, app.tizenAppId) + app.samsungAppIds)
-            .filter { it.isNotBlank() }
-            .distinct()
+    private suspend fun samsungLaunchApp(device: DeviceEntry, app: AppEntry): SamsungLaunchResult {
+        val candidates = samsungAppLaunchCandidates(app)
         if (candidates.isEmpty()) {
             throw IllegalStateException("Samsung-App-ID fehlt.")
         }
 
         var lastError: Throwable? = null
-        for (appId in candidates) {
+        var firstHttpSuccess: SamsungLaunchResult? = null
+        for (candidate in candidates.filterNot { it.idType == "packageId" || it.idType == "runtimeTitle" }) {
             for (secure in listOf(false, true)) {
                 try {
                     val protocol = if (secure) "https" else "http"
                     val port = if (secure) 8002 else 8001
                     val client = if (secure) insecureHttpClient else standardHttpClient
-                    recordDeviceRequest(device, "samsung:http-applications/$appId", port)
+                    recordDeviceRequest(device, "samsung:http-applications/${candidate.idType}/${candidate.appId}", port)
                     val request = Request.Builder()
-                        .url("$protocol://${device.ip}:$port/api/v2/applications/${URLEncoder.encode(appId, "UTF-8")}")
+                        .url("$protocol://${device.ip}:$port/api/v2/applications/${URLEncoder.encode(candidate.appId, "UTF-8")}")
                         .post(ByteArray(0).toRequestBody(null))
+                        .header("Accept", "application/json")
                         .build()
                     client.newCall(request).execute().use { response ->
                         if (!response.isSuccessful) {
                             throw IllegalStateException("HTTP ${response.code} beim Samsung-App-Start.")
                         }
                     }
-                    recordDeviceSuccess(device, "Samsung App ${app.name} via HTTP $appId")
-                    return
+                    val result = SamsungLaunchResult(
+                        appId = candidate.appId,
+                        method = "samsung-http:${candidate.idType}:${if (secure) 8002 else 8001}",
+                        port = port
+                    )
+                    if (firstHttpSuccess == null) {
+                        firstHttpSuccess = result
+                    }
+                    recordDeviceSuccess(device, "Samsung App ${app.name} via HTTP ${candidate.idType} ${candidate.appId}")
+                    delay(180)
                 } catch (error: Throwable) {
                     lastError = error
                 }
             }
         }
 
-        for (appId in candidates) {
-            for (port in listOf(8002, 8001)) {
-                try {
-                    samsungLaunchAppWebSocket(device, appId, port, app.actionType)
-                    recordDeviceSuccess(device, "Samsung App ${app.name} via WebSocket $appId")
-                    return
-                } catch (error: Throwable) {
-                    lastError = error
+        for (candidate in candidates) {
+            for (actionType in samsungActionTypes(app)) {
+                for (port in listOf(8002, 8001)) {
+                    try {
+                        samsungLaunchAppWebSocket(device, candidate.appId, port, actionType, app.metaTag)
+                        val result = SamsungLaunchResult(
+                            appId = candidate.appId,
+                            method = "samsung-websocket:${candidate.idType}:$actionType:$port",
+                            port = port
+                        )
+                        recordDeviceSuccess(
+                            device,
+                            "Samsung App ${app.name} via WebSocket ${candidate.idType} ${candidate.appId} $actionType"
+                        )
+                        return result
+                    } catch (error: Throwable) {
+                        lastError = error
+                    }
                 }
             }
+        }
+
+        if (firstHttpSuccess != null) {
+            return firstHttpSuccess
         }
 
         if (app.macroKeys.isNotEmpty()) {
             samsungSendSequence(device, app.macroKeys, delayMs = 450, initialDelayMs = 0)
             recordDeviceSuccess(device, "Samsung App ${app.name} via Makro")
-            return
+            return SamsungLaunchResult(appId = app.appId, method = "samsung-macro")
         }
 
         recordDeviceError(device, "SAMSUNG_APP_LAUNCH_FAILED")
         throw IllegalStateException(lastError?.message ?: "Samsung-App konnte nicht gestartet werden.")
     }
 
-    private suspend fun samsungLaunchAppWebSocket(device: DeviceEntry, appId: String, port: Int, actionType: String) {
-        recordDeviceRequest(device, "samsung:ed.apps.launch/$appId", port)
+    private fun samsungAppLaunchCandidates(app: AppEntry): List<SamsungAppLaunchCandidate> {
+        val appIds = linkedMapOf<String, SamsungAppLaunchCandidate>()
+        fun add(id: String?, idType: String) {
+            val cleaned = id?.trim()?.takeIf { it.isNotBlank() } ?: return
+            appIds.putIfAbsent(cleaned, SamsungAppLaunchCandidate(cleaned, idType))
+        }
+
+        add(app.appId, "appId")
+        add(app.tizenAppId, "tizenAppId")
+        app.samsungAppIds.forEach { id ->
+            val idType = when {
+                id.startsWith("org.tizen.", ignoreCase = true) -> "tizenSystemId"
+                "." in id -> "tizenAppId"
+                id.all { char -> char.isDigit() } -> "appId"
+                id.equals(id.uppercase(), ignoreCase = false) -> "runtimeTitle"
+                else -> "packageId"
+            }
+            add(id, idType)
+        }
+        return appIds.values.toList()
+    }
+
+    private fun samsungActionTypes(app: AppEntry): List<String> {
+        val preferred = app.actionType.ifBlank { "DEEP_LINK" }.uppercase()
+        val fallback = if (preferred == "NATIVE_LAUNCH") "DEEP_LINK" else "NATIVE_LAUNCH"
+        return listOf(preferred, fallback).distinct()
+    }
+
+    private suspend fun samsungLaunchAppWebSocket(
+        device: DeviceEntry,
+        appId: String,
+        port: Int,
+        actionType: String,
+        metaTag: String?
+    ) {
+        recordDeviceRequest(device, "samsung:ed.apps.launch/$appId/$actionType", port)
         withSamsungRemote(device, port) { socket ->
-            socket.send(samsungAppLaunchPayload(appId, actionType))
+            socket.send(samsungAppLaunchPayload(appId, actionType, metaTag))
             delay(350)
         }
     }
@@ -678,11 +741,13 @@ class SamsungDirectTvClient(
             )
             .toString()
 
-    private fun samsungAppLaunchPayload(appId: String, actionType: String): String {
+    private fun samsungAppLaunchPayload(appId: String, actionType: String, metaTag: String?): String {
         val data = JSONObject()
             .put("appId", appId)
-            .put("action_type", actionType.ifBlank { "NATIVE_LAUNCH" })
-            .toString()
+            .put("action_type", actionType.ifBlank { "DEEP_LINK" })
+        if (!metaTag.isNullOrBlank()) {
+            data.put("metaTag", metaTag)
+        }
         return JSONObject()
             .put("method", "ms.channel.emit")
             .put(
@@ -1954,6 +2019,8 @@ class SamsungDirectTvClient(
     }
 
     private data class ProbeStatus(val online: Boolean, val port: Int?)
+    private data class SamsungLaunchResult(val appId: String?, val method: String, val port: Int? = null)
+    private data class SamsungAppLaunchCandidate(val appId: String, val idType: String)
     private class LgAuthorizationException(val code: String, message: String) : IllegalStateException(message)
     private data class SamsungIdentity(
         val name: String?,

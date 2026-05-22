@@ -182,65 +182,85 @@ class DirectTvStore(private val prefs: SharedPreferences) {
         "samsung" -> listOf(
             AppEntry(
                 name = "YouTube",
-                appId = "9Ur5IzDKqV.TizenYouTube",
+                appId = "111299001912",
                 tizenAppId = "9Ur5IzDKqV.TizenYouTube",
                 aliases = listOf("youtube", "yt"),
-                samsungAppIds = listOf("9Ur5IzDKqV.TizenYouTube")
+                samsungAppIds = listOf("111299001912", "9Ur5IzDKqV.TizenYouTube", "9Ur5IzDKqV")
             ),
             AppEntry(
                 name = "Netflix",
                 appId = "11101200001",
                 tizenAppId = "RN1MCdNq8t.Netflix",
                 aliases = listOf("netflix"),
-                samsungAppIds = listOf("11101200001", "RN1MCdNq8t.Netflix")
+                samsungAppIds = listOf(
+                    "11101200001",
+                    "RN1MCdNq8t.Netflix",
+                    "RN1MCdNq8t",
+                    "org.tizen.netflix-app",
+                    "org.tizen.netflixlowmem"
+                )
             ),
             AppEntry(
                 name = "Prime Video",
                 appId = "3201512006785",
                 tizenAppId = "evKhCgZelL.AmazonIgnitionLauncher2",
                 aliases = listOf("prime", "amazon prime", "prime video"),
-                samsungAppIds = listOf("3201512006785", "evKhCgZelL.AmazonIgnitionLauncher2")
+                samsungAppIds = listOf("3201512006785", "evKhCgZelL.AmazonIgnitionLauncher2", "evKhCgZelL", "AmazonInstantVideo")
+            ),
+            AppEntry(
+                name = "Disney+",
+                appId = "3201901017640",
+                tizenAppId = "MCmYXNxgcu.DisneyPlus",
+                aliases = listOf("disney", "disney+"),
+                actionType = "NATIVE_LAUNCH",
+                samsungAppIds = listOf("3201901017640", "MCmYXNxgcu.DisneyPlus", "MCmYXNxgcu", "DisneyPlus")
             ),
             AppEntry(
                 name = "Crunchyroll",
                 appId = "3202302030097",
                 tizenAppId = "OGLLvqej7u.CrunchyrollWebApp",
                 aliases = listOf("crunchyroll", "anime"),
-                samsungAppIds = listOf("3202302030097", "OGLLvqej7u.CrunchyrollWebApp")
+                actionType = "NATIVE_LAUNCH",
+                samsungAppIds = listOf("3202302030097", "OGLLvqej7u.CrunchyrollWebApp", "OGLLvqej7u")
             ),
             AppEntry(
                 name = "Sky X",
                 appId = "3201812017464",
                 tizenAppId = "J0zX4W0EmB.SkyX",
                 aliases = listOf("sky x", "skyx"),
-                samsungAppIds = listOf("3201812017464", "J0zX4W0EmB.SkyX")
+                actionType = "NATIVE_LAUNCH",
+                samsungAppIds = listOf("3201812017464", "J0zX4W0EmB.SkyX", "J0zX4W0EmB")
             ),
             AppEntry(
                 name = "Joyn",
                 appId = "3202106024013",
                 tizenAppId = "2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT",
                 aliases = listOf("joyn"),
-                samsungAppIds = listOf("3202106024013", "2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT")
+                actionType = "NATIVE_LAUNCH",
+                samsungAppIds = listOf("3202106024013", "2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT", "2200MKoe7n")
             ),
             AppEntry(
                 name = "Plex",
                 appId = "3201512006963",
                 tizenAppId = "kIciSQlYEM.plex",
                 aliases = listOf("plex"),
-                samsungAppIds = listOf("3201512006963", "kIciSQlYEM.plex")
+                actionType = "NATIVE_LAUNCH",
+                samsungAppIds = listOf("3201512006963", "kIciSQlYEM.plex", "kIciSQlYEM")
             ),
             AppEntry(
                 name = "simpliTV",
-                appId = "LibFXRqQAD.simplitv",
+                appId = "3202009021699",
                 tizenAppId = "LibFXRqQAD.simplitv",
-                aliases = listOf("simpli", "simplitv"),
-                samsungAppIds = listOf("LibFXRqQAD.simplitv")
+                aliases = listOf("simpli", "simplitv", "simpli tv"),
+                actionType = "NATIVE_LAUNCH",
+                samsungAppIds = listOf("3202009021699", "LibFXRqQAD.simplitv", "LibFXRqQAD")
             ),
             AppEntry(
                 name = "Internet",
                 appId = "org.tizen.browser",
                 tizenAppId = "org.tizen.browser",
                 aliases = listOf("internet", "browser"),
+                actionType = "NATIVE_LAUNCH",
                 samsungAppIds = listOf("org.tizen.browser")
             )
         )

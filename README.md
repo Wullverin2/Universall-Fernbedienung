@@ -33,7 +33,7 @@ Die Oberflaeche sendet keine Samsung-spezifischen Tastencodes mehr direkt. Butto
 - LG webOS: SSAP-Audio-/TV-Kommandos und Pointer-Input-Socket-Namen wie `HOME`, `ENTER`, `VOLUMEUP`
 - Nabo/Vestel: SmartCenter-Buttons wie `BUTTON_HOME`, `BUTTON_OK`, `BUTTON_VOL_UP`; TiVo-IRCODE bleibt Fallback
 
-Samsung-App-Starts nutzen fuer die MU-Serie wieder zuerst den zuvor funktionierenden HTTP-Endpunkt `/api/v2/applications/...` auf Port 8001 und danach 8002. Erst wenn dieser Weg fehlschlaegt, wird der WebSocket-App-Launch ueber `ed.apps.launch` als Fallback probiert. Das verhindert, dass ein erfolgreich gesendetes WebSocket-Kommando faelschlich als gestartete App gewertet wird.
+Samsung-App-Starts nutzen fuer die MU-Serie wieder die per `sdb vd_applist` ausgelesenen IDs. Die App probiert zuerst den HTTP-Endpunkt `/api/v2/applications/...` auf Port 8001/8002 und sendet danach trotzdem noch die WebSocket-Variante `ed.apps.launch` mit `DEEP_LINK`/`NATIVE_LAUNCH`. Dadurch blockiert ein scheinbar erfolgreiches, aber wirkungsloses HTTP-OK vom TV nicht mehr den zweiten Startweg.
 
 ## LG-Pairing
 
@@ -67,7 +67,7 @@ LG wird lokal ueber webOS/SSAP angesprochen. Je nach Geraet kann beim ersten Zug
 - nach dem Verbinden fragt die App Geraeteinfos ab und speichert Modell, Firmware, webOS-SDK, Netzwerktyp und Wake-on-WiFi-Hinweise
 - Einschalten ist nur moeglich, wenn Wake-on-LAN beziehungsweise Wake-on-WiFi am TV erlaubt ist und eine MAC-Adresse bekannt ist
 - Pairing nutzt ein erweitertes Rechte-Manifest fuer geschuetzte Funktionen wie Pointer-/Tastensteuerung und App-Liste
-- bei LG-Fehlern wie `401` wird der gespeicherte Client-Key verworfen, damit der TV beim naechsten Verbinden neu nach Pairing fragen kann
+- bei LG-Fehlern wie `401` bleibt der gespeicherte Client-Key erhalten; geloescht wird er nur, wenn das LG-Geraet aus der App entfernt wird
 - Diagnose zeigt Pairing-Status, letzten Fehler und letzten erfolgreichen Befehl
 
 ## Nabo / Vestel SmartCenter
@@ -180,6 +180,10 @@ Eine Test-Pruefliste liegt im Projekt unter:
 
 - `docs/test-checklist.md`
 - `docs/Universal-Fernbedienung-Pruefliste.pdf`
+
+Die per Tizen Studio `sdb.exe` ausgelesenen Samsung-MU-App-IDs sind dokumentiert unter:
+
+- `docs/samsung-mu-sdb-appids.md`
 
 PDF neu erzeugen:
 

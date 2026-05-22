@@ -19,11 +19,11 @@ Diese Android-App steuert kompatible Smart-TVs direkt im lokalen Netzwerk. Eine 
 
 Die App verwendet intern neutrale Tasten wie `HOME`, `OK`, `VOLUME_UP`, `TELETEXT` und `DIGIT_1`. Erst beim Senden wird daraus der passende Hersteller-Code:
 
-- Samsung: Samsung-Remote-Keys wie `KEY_HOME`; App-Start zuerst ueber den fuer MU-Modelle funktionierenden HTTP-Endpunkt, WebSocket `ed.apps.launch` nur als Fallback
+- Samsung: Samsung-Remote-Keys wie `KEY_HOME`; App-Start mit per `sdb vd_applist` ausgelesenen IDs, HTTP-Endpunkt und danach WebSocket `ed.apps.launch` als zweiter Startweg
 - LG webOS: SSAP-Kommandos und Pointer-Input-Socket
 - Nabo/Vestel: SmartCenter-Buttons und TiVo-IRCODE-Fallback
 
-Samsung-App-Buttons nutzen die App-ID-Reihenfolge, die auf der MU-Serie bereits funktioniert hat: je nach App zuerst numerische Samsung-ID oder Tizen/SDB-Paket-ID, danach der jeweilige Fallback.
+Samsung-App-Buttons nutzen die App-ID-Reihenfolge aus dem MU-TV: numerische Samsung-ID, Tizen-App-ID und Paket-ID. Ein HTTP-OK wird nicht mehr als alleiniger Beweis gewertet; die WebSocket-Launch-Variante wird danach ebenfalls gesendet.
 
 ## LG-Pairing
 
