@@ -21,6 +21,7 @@ Die App unterstuetzt derzeit:
 - Quellenwechsel
 - App-Starts, soweit das jeweilige TV-Modell lokale App-Kommandos akzeptiert
 - Diagnose-Ausgabe mit Plattform, Capabilities, letztem Fehler und letztem erfolgreichen Befehl
+- persistentes Diagnose-Log mit Zeitstempel, das per ADB vom Smartphone ausgelesen werden kann
 
 ## Samsung
 
@@ -121,6 +122,31 @@ Fuer eine komplette Neuinstallation:
 powershell -ExecutionPolicy Bypass -File scripts\deploy-s23.ps1 -Fresh
 ```
 
+## Diagnose-Log vom S23 auslesen
+
+Die App schreibt waehrend der Nutzung ein persistentes Log in den App-Speicher:
+
+- interne Datei: `files/universal-remote-diagnostic.log`
+- gespiegelte ADB-Datei: `/sdcard/Android/data/de.craftplay.universalremote/files/universal-remote-diagnostic.log`
+
+Das Log enthaelt Zeitstempel, Info-/Fehlerstatus, die ausgefuehrte Aktion, die geplante Funktion sowie den aktiven TV mit IP und Geraetetyp. Token und Client-Keys werden maskiert.
+
+Auslesen mit angeschlossenem S23:
+
+```powershell
+$adb = "C:\Users\speed_pctca6b\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+& $adb -s R5CW82ZH8SB shell run-as de.craftplay.universalremote cat files/universal-remote-diagnostic.log
+```
+
+Alternativ kann die gespiegelte Datei kopiert werden:
+
+```powershell
+$adb = "C:\Users\speed_pctca6b\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+& $adb -s R5CW82ZH8SB pull /sdcard/Android/data/de.craftplay.universalremote/files/universal-remote-diagnostic.log .
+```
+
+In der App zeigt die Log-Karte die letzten Eintraege, die ADB-Befehle, einen Button zum Neuladen und einen Button zum Leeren der Logdatei.
+
 ## Pruefliste
 
 Eine Test-Pruefliste liegt im Projekt unter:
@@ -144,6 +170,8 @@ node scripts\create-test-checklist-pdf.mjs
   - lokale Geraetespeicherung und Mappings
 - `app/src/main/java/de/craftplay/samsungtvbridge/data/SamsungDirectTvClient.kt`
   - direkte TV-Kommunikation fuer Samsung, LG und Nabo/Vestel
+- `app/src/main/java/de/craftplay/samsungtvbridge/data/PersistentAppLogger.kt`
+  - persistente Diagnose-Logdatei fuer App-Nutzung und ADB-Auswertung
 
 ## Wichtig
 

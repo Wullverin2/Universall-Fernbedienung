@@ -12,5 +12,7 @@ data class MainUiState(
     val apps: List<AppEntry> = emptyList(),
     val devices: DeviceRegistryResponse = DeviceRegistryResponse(),
     val diagnosticsOutput: String = "",
-    val messageLog: List<String> = emptyList()
+    val messageLog: List<String> = emptyList(),
+    val logFileInfo: String = "",
+    val logLineCount: Int = 0
 )

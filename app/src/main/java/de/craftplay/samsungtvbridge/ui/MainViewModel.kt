@@ -1,28 +1,40 @@
 package de.craftplay.samsungtvbridge.ui
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.craftplay.samsungtvbridge.data.DirectTvStore
+import de.craftplay.samsungtvbridge.data.PersistentAppLogger
 import de.craftplay.samsungtvbridge.data.SamsungDirectTvClient
 import de.craftplay.samsungtvbridge.model.ActionResponse
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.time.LocalTime
+import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val store = DirectTvStore(application.getSharedPreferences("universal_remote", 0))
     private val client = SamsungDirectTvClient(application.applicationContext, store)
-    private val clockFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+    private val persistentLogger = PersistentAppLogger(application.applicationContext)
+    private val clockFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
 
     var uiState = androidx.compose.runtime.mutableStateOf(
         MainUiState(
             sources = listSourcesForActiveDevice(),
             apps = listAppsForActiveDevice(),
-            devices = store.getRegistry()
+            devices = store.getRegistry(),
+            messageLog = persistentLogger.readRecentLines(),
+            logFileInfo = persistentLogger.fileDescription(),
+            logLineCount = persistentLogger.lineCount()
         )
     )
         private set
+
+    init {
+        appendLog("App gestartet. Persistente Logdatei aktiv.")
+    }
 
     fun connectSelectedTv() {
         execute("Verbindung zum TV wird aufgebaut...") {
@@ -122,6 +134,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun reloadPersistentLog() {
+        uiState.value = uiState.value.copy(
+            messageLog = persistentLogger.readRecentLines(),
+            logFileInfo = persistentLogger.fileDescription(),
+            logLineCount = persistentLogger.lineCount()
+        )
+    }
+
+    fun clearPersistentLog() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                persistentLogger.clear()
+            }
+            uiState.value = uiState.value.copy(messageLog = emptyList(), logLineCount = 0)
+            appendLog("Persistente Logdatei wurde geleert.")
+        }
+    }
+
     private fun action(actionName: String, plannedFunction: String, successFallback: String, block: suspend () -> ActionResponse) {
         execute("$actionName -> geplant: $plannedFunction") {
             val response = block()
@@ -188,9 +218,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun appendLog(message: String, isError: Boolean = false) {
         val prefix = if (isError) "FEHLER" else "INFO"
-        val timestamp = LocalTime.now().format(clockFormatter)
-        val nextMessages = listOf("[$timestamp] [$prefix] $message") + uiState.value.messageLog
-        uiState.value = uiState.value.copy(messageLog = nextMessages.take(80))
+        val timestamp = LocalDateTime.now().format(clockFormatter)
+        val deviceContext = store.getActiveDevice()?.let { device ->
+            " | tv=${device.name} | ip=${device.ip} | typ=${device.deviceType}"
+        }.orEmpty()
+        val line = "[$timestamp] [$prefix] $message$deviceContext"
+        if (isError) {
+            Log.e("UniversalRemote", line)
+        } else {
+            Log.i("UniversalRemote", line)
+        }
+        val nextMessages = listOf(line) + uiState.value.messageLog
+        uiState.value = uiState.value.copy(
+            messageLog = nextMessages.take(120),
+            logLineCount = uiState.value.logLineCount + 1,
+            logFileInfo = persistentLogger.fileDescription()
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            persistentLogger.append(line)
+        }
     }
 
     private fun listSourcesForActiveDevice() =

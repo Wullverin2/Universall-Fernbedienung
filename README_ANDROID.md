@@ -1,34 +1,59 @@
-# Samsung TV Local Bridge Android App
+# Universal Fernbedienung Android App
 
-Diese Android-App ist eine lokale Fernbedienung fuer die bestehende `samsung-tv-local-bridge`.
+Diese Android-App steuert kompatible Smart-TVs direkt im lokalen Netzwerk. Eine separate Node-Bridge ist fuer diese App nicht notwendig.
 
 ## Funktionen
 
-- Bridge-URL lokal speichern
-- Status des aktiven TVs anzeigen
-- Samsung-TVs laden, scannen und auswaehlen
-- Ein-/Ausschalten
-- Lautstaerke und Navigation
-- Sender per Nummer oder Name
-- Quellenwechsel
-- App-Starts
-- Diagnose-Ausgabe
+- Samsung-, LG-webOS- und Nabo/Vestel-TVs im aktuellen WLAN scannen
+- erkannte TVs lokal speichern
+- TV per Dropdown auswaehlen und aktiv schalten
+- Ein-/Ausschalten, Navigation, Lautstaerke, Kanal, Guide, Info, Source
+- Ziffernblock und Teletext
+- Quellenwechsel und App-Starts, soweit das TV-Modell lokale Kommandos akzeptiert
+- Diagnoseanzeige mit Plattform, Pairing-Status, letztem Request und letztem Fehler
+- persistentes Diagnose-Log mit Zeitstempel
+
+## Diagnose-Log
+
+Die App schreibt jede Aktion und jeden Fehler in:
+
+- `files/universal-remote-diagnostic.log`
+- `/sdcard/Android/data/de.craftplay.universalremote/files/universal-remote-diagnostic.log`
+
+Auslesen per ADB:
+
+```powershell
+$adb = "C:\Users\speed_pctca6b\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+& $adb -s R5CW82ZH8SB shell run-as de.craftplay.universalremote cat files/universal-remote-diagnostic.log
+```
+
+Oder als Datei kopieren:
+
+```powershell
+$adb = "C:\Users\speed_pctca6b\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+& $adb -s R5CW82ZH8SB pull /sdcard/Android/data/de.craftplay.universalremote/files/universal-remote-diagnostic.log .
+```
+
+Token und LG-Client-Keys werden vor dem Schreiben maskiert.
 
 ## Voraussetzungen
 
-- Android Studio Iguana oder neuer
-- Android SDK fuer API 35
-- Laufende Bridge im Heimnetz, z. B. `http://192.168.0.103:8088`
+- Android Studio
+- Android SDK API 35
+- echtes Android-Geraet im selben WLAN wie der TV
+- USB-Debugging fuer ADB-Installation und Logauswertung
 
-## Starten
+## Build und Installation
 
-1. Ordner `android-app/` in Android Studio oeffnen
-2. Gradle-Sync laufen lassen
-3. App auf echtes Android-Geraet oder Emulator installieren
-4. In der App die Bridge-URL eintragen und verbinden
+```powershell
+.\gradlew.bat assembleDebug
+powershell -ExecutionPolicy Bypass -File scripts\deploy-s23.ps1
+```
 
-## Wichtige Hinweise
+Die APK wird auf dem S23 installiert und nach `/sdcard/Download/Universal-Fernbedienung-debug.apk` kopiert.
 
-- Die App spricht direkt per HTTP mit der Bridge.
-- Fuer lokale IP-Adressen ist `usesCleartextTraffic="true"` gesetzt.
-- Ein Emulator kann dein Heimnetz je nach Setup eingeschraenkt sehen. Ein echtes Geraet im WLAN ist fuer die ersten Tests meist einfacher.
+## Hinweise
+
+- LG webOS benoetigt beim ersten Zugriff oft eine Pairing-Bestaetigung am TV.
+- Nabo/Vestel-Steuerung haengt stark von Firmware und Netzwerkfreigaben ab.
+- Wenn ein TV im Handy-Hotspot steuerbar ist, im Router-WLAN aber nicht, blockiert der Router oft Multicast, Broadcast oder lokale Client-Kommunikation.

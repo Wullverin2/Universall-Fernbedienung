@@ -87,7 +87,9 @@ class MainActivity : ComponentActivity() {
                     onSendKey = viewModel::sendKey,
                     onSource = viewModel::setSource,
                     onApp = viewModel::launchApp,
-                    onDiagnostics = viewModel::loadDiagnostics
+                    onDiagnostics = viewModel::loadDiagnostics,
+                    onReloadLog = viewModel::reloadPersistentLog,
+                    onClearLog = viewModel::clearPersistentLog
                 )
             }
         }
@@ -109,7 +111,9 @@ private fun UniversalRemoteApp(
     onSendKey: (String) -> Unit,
     onSource: (String) -> Unit,
     onApp: (String) -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    onReloadLog: () -> Unit,
+    onClearLog: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -164,7 +168,15 @@ private fun UniversalRemoteApp(
                     }
                 }
                 item { DiagnosticsCard(state.diagnosticsOutput, onDiagnostics) }
-                item { LogCard(state.messageLog) }
+                item {
+                    LogCard(
+                        messages = state.messageLog,
+                        logFileInfo = state.logFileInfo,
+                        logLineCount = state.logLineCount,
+                        onReloadLog = onReloadLog,
+                        onClearLog = onClearLog
+                    )
+                }
                 item { Spacer(modifier = Modifier.height(12.dp)) }
             }
 
@@ -489,9 +501,35 @@ private fun DiagnosticsCard(output: String, onDiagnostics: () -> Unit) {
 }
 
 @Composable
-private fun LogCard(messages: List<String>) {
+private fun LogCard(
+    messages: List<String>,
+    logFileInfo: String,
+    logLineCount: Int,
+    onReloadLog: () -> Unit,
+    onClearLog: () -> Unit
+) {
     val context = LocalContext.current
     SectionCard(title = "Log") {
+        Text("Gespeicherte Zeilen: $logLineCount", style = MaterialTheme.typography.bodySmall)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF10141B), RoundedCornerShape(8.dp))
+                .padding(10.dp)
+        ) {
+            Text(
+                text = logFileInfo.ifBlank { "Logdatei wird beim ersten Eintrag angelegt." },
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onReloadLog, modifier = Modifier.weight(1f)) {
+                Text("Neu laden")
+            }
+            OutlinedButton(onClick = onClearLog, modifier = Modifier.weight(1f)) {
+                Text("Leeren")
+            }
+        }
         OutlinedButton(
             onClick = {
                 val text = messages.joinToString("\n").ifBlank { "Keine Logeintraege vorhanden." }
