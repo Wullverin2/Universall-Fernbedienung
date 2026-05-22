@@ -398,29 +398,29 @@ private fun RemoteShell(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MiniRemoteButton("TXT") { onSendKey("KEY_TTX_MIX") }
-                MiniRemoteButton("Home") { onSendKey("KEY_HOME") }
-                MiniRemoteButton("Menü") { onSendKey("KEY_MENU") }
+                MiniRemoteButton("TXT") { onSendKey("TELETEXT") }
+                MiniRemoteButton("Home") { onSendKey("HOME") }
+                MiniRemoteButton("Menü") { onSendKey("MENU") }
             }
 
             DPad(onSendKey)
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MiniRemoteButton("Vol+") { onSendKey("KEY_VOLUP") }
-                MiniRemoteButton("Vol-") { onSendKey("KEY_VOLDOWN") }
-                MiniRemoteButton("Mute") { onSendKey("KEY_MUTE") }
+                MiniRemoteButton("Vol+") { onSendKey("VOLUME_UP") }
+                MiniRemoteButton("Vol-") { onSendKey("VOLUME_DOWN") }
+                MiniRemoteButton("Mute") { onSendKey("MUTE") }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MiniRemoteButton("CH+") { onSendKey("KEY_CHUP") }
-                MiniRemoteButton("CH-") { onSendKey("KEY_CHDOWN") }
-                MiniRemoteButton("Guide") { onSendKey("KEY_GUIDE") }
+                MiniRemoteButton("CH+") { onSendKey("CHANNEL_UP") }
+                MiniRemoteButton("CH-") { onSendKey("CHANNEL_DOWN") }
+                MiniRemoteButton("Guide") { onSendKey("GUIDE") }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MiniRemoteButton("Zurück") { onSendKey("KEY_RETURN") }
-                MiniRemoteButton("Source") { onSendKey("KEY_SOURCE") }
-                MiniRemoteButton("Info") { onSendKey("KEY_INFO") }
+                MiniRemoteButton("Zurück") { onSendKey("BACK") }
+                MiniRemoteButton("Source") { onSendKey("SOURCE") }
+                MiniRemoteButton("Info") { onSendKey("INFO") }
             }
 
             NumericPad(onSendKey)
@@ -431,13 +431,13 @@ private fun RemoteShell(
 @Composable
 private fun DPad(onSendKey: (String) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        CircleRemoteButton("▲", { onSendKey("KEY_UP") }, filled = false, small = true)
+        CircleRemoteButton("▲", { onSendKey("UP") }, filled = false, small = true)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            CircleRemoteButton("◀", { onSendKey("KEY_LEFT") }, filled = false, small = true)
-            CircleRemoteButton("OK", { onSendKey("KEY_ENTER") }, filled = true, small = true)
-            CircleRemoteButton("▶", { onSendKey("KEY_RIGHT") }, filled = false, small = true)
+            CircleRemoteButton("◀", { onSendKey("LEFT") }, filled = false, small = true)
+            CircleRemoteButton("OK", { onSendKey("OK") }, filled = true, small = true)
+            CircleRemoteButton("▶", { onSendKey("RIGHT") }, filled = false, small = true)
         }
-        CircleRemoteButton("▼", { onSendKey("KEY_DOWN") }, filled = false, small = true)
+        CircleRemoteButton("▼", { onSendKey("DOWN") }, filled = false, small = true)
     }
 }
 
@@ -462,9 +462,9 @@ private fun NumericPad(onSendKey: (String) -> Unit) {
                     OutlinedButton(
                         onClick = {
                             when (label) {
-                                "-" -> onSendKey("KEY_PRECH")
-                                "Exit" -> onSendKey("KEY_EXIT")
-                                else -> onSendKey("KEY_$label")
+                                "-" -> onSendKey("PREVIOUS_CHANNEL")
+                                "Exit" -> onSendKey("EXIT")
+                                else -> onSendKey("DIGIT_$label")
                             }
                         },
                         modifier = Modifier

@@ -129,14 +129,14 @@ class DirectTvStore(private val prefs: SharedPreferences) {
 
     fun listSources(deviceType: String): List<SourceEntry> = when (deviceType.lowercase()) {
         "samsung" -> listOf(
-            SourceEntry("HDMI1", listOf("hdmi 1", "konsole", "receiver"), listOf("KEY_SOURCE", "KEY_DOWN", "KEY_ENTER"), delayMs = 600, initialDelayMs = 900),
-            SourceEntry("HDMI2", listOf("hdmi 2", "fire tv", "firetv"), listOf("KEY_SOURCE", "KEY_DOWN", "KEY_DOWN", "KEY_ENTER"), delayMs = 600, initialDelayMs = 900),
-            SourceEntry("TV", listOf("fernsehen", "live tv", "tv"), listOf("KEY_SOURCE", "KEY_UP", "KEY_ENTER"), delayMs = 600, initialDelayMs = 900)
+            SourceEntry("HDMI1", listOf("hdmi 1", "konsole", "receiver"), listOf("SOURCE", "DOWN", "OK"), delayMs = 600, initialDelayMs = 900),
+            SourceEntry("HDMI2", listOf("hdmi 2", "fire tv", "firetv"), listOf("SOURCE", "DOWN", "DOWN", "OK"), delayMs = 600, initialDelayMs = 900),
+            SourceEntry("TV", listOf("fernsehen", "live tv", "tv"), listOf("SOURCE", "UP", "OK"), delayMs = 600, initialDelayMs = 900)
         )
 
         "lg" -> listOf(
-            SourceEntry("Home Dashboard", listOf("home", "dashboard"), listOf("KEY_HOME")),
-            SourceEntry("Live TV", listOf("tv", "fernsehen"), listOf("KEY_TV")),
+            SourceEntry("Home Dashboard", listOf("home", "dashboard"), listOf("HOME")),
+            SourceEntry("Live TV", listOf("tv", "fernsehen"), listOf("TV")),
             SourceEntry("HDMI1", listOf("hdmi 1", "hdmi1"), emptyList()),
             SourceEntry("HDMI2", listOf("hdmi 2", "hdmi2"), emptyList()),
             SourceEntry("HDMI3", listOf("hdmi 3", "hdmi3"), emptyList()),
@@ -144,8 +144,8 @@ class DirectTvStore(private val prefs: SharedPreferences) {
         )
 
         "tivo", "vestel" -> listOf(
-            SourceEntry("Quelle", listOf("source", "eingang"), listOf("KEY_SOURCE")),
-            SourceEntry("TV", listOf("fernsehen", "live tv", "tv"), listOf("KEY_TV"))
+            SourceEntry("Quelle", listOf("source", "eingang"), listOf("SOURCE")),
+            SourceEntry("TV", listOf("fernsehen", "live tv", "tv"), listOf("TV"))
         )
 
         else -> emptyList()
@@ -153,15 +153,69 @@ class DirectTvStore(private val prefs: SharedPreferences) {
 
     fun listApps(deviceType: String): List<AppEntry> = when (deviceType.lowercase()) {
         "samsung" -> listOf(
-            AppEntry("YouTube", "9Ur5IzDKqV.TizenYouTube", "9Ur5IzDKqV.TizenYouTube", listOf("youtube", "yt")),
-            AppEntry("Netflix", "11101200001", "RN1MCdNq8t.Netflix", listOf("netflix")),
-            AppEntry("Prime Video", "3201512006785", "evKhCgZelL.AmazonIgnitionLauncher2", listOf("prime", "amazon prime", "prime video")),
-            AppEntry("Crunchyroll", "3202302030097", "OGLLvqej7u.CrunchyrollWebApp", listOf("crunchyroll", "anime"), "NATIVE_LAUNCH"),
-            AppEntry("Sky X", "3201812017464", "J0zX4W0EmB.SkyX", listOf("sky x", "skyx"), "NATIVE_LAUNCH"),
-            AppEntry("Joyn", "3202106024013", "2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT", listOf("joyn"), "NATIVE_LAUNCH"),
-            AppEntry("Plex", "3201512006963", "kIciSQlYEM.plex", listOf("plex"), "NATIVE_LAUNCH"),
-            AppEntry("simpliTV", "LibFXRqQAD.simplitv", "LibFXRqQAD.simplitv", listOf("simpli", "simplitv"), "NATIVE_LAUNCH"),
-            AppEntry("Internet", "org.tizen.browser", "org.tizen.browser", listOf("internet", "browser"), "NATIVE_LAUNCH")
+            AppEntry(
+                name = "YouTube",
+                appId = "111299001912",
+                tizenAppId = "9Ur5IzDKqV.TizenYouTube",
+                aliases = listOf("youtube", "yt"),
+                samsungAppIds = listOf("9Ur5IzDKqV.TizenYouTube", "111299001912")
+            ),
+            AppEntry(
+                name = "Netflix",
+                appId = "11101200001",
+                tizenAppId = "RN1MCdNq8t.Netflix",
+                aliases = listOf("netflix"),
+                samsungAppIds = listOf("RN1MCdNq8t.Netflix", "11101200001")
+            ),
+            AppEntry(
+                name = "Prime Video",
+                appId = "3201512006785",
+                tizenAppId = "evKhCgZelL.AmazonIgnitionLauncher2",
+                aliases = listOf("prime", "amazon prime", "prime video"),
+                samsungAppIds = listOf("evKhCgZelL.AmazonIgnitionLauncher2", "3201512006785")
+            ),
+            AppEntry(
+                name = "Crunchyroll",
+                appId = "3202302030097",
+                tizenAppId = "OGLLvqej7u.CrunchyrollWebApp",
+                aliases = listOf("crunchyroll", "anime"),
+                samsungAppIds = listOf("OGLLvqej7u.CrunchyrollWebApp", "3202302030097")
+            ),
+            AppEntry(
+                name = "Sky X",
+                appId = "3201812017464",
+                tizenAppId = "J0zX4W0EmB.SkyX",
+                aliases = listOf("sky x", "skyx"),
+                samsungAppIds = listOf("J0zX4W0EmB.SkyX", "3201812017464")
+            ),
+            AppEntry(
+                name = "Joyn",
+                appId = "3202106024013",
+                tizenAppId = "2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT",
+                aliases = listOf("joyn"),
+                samsungAppIds = listOf("2200MKoe7n.ZAPPNVOLLTVFREIGESTREAMT", "3202106024013")
+            ),
+            AppEntry(
+                name = "Plex",
+                appId = "3201512006963",
+                tizenAppId = "kIciSQlYEM.plex",
+                aliases = listOf("plex"),
+                samsungAppIds = listOf("kIciSQlYEM.plex", "3201512006963")
+            ),
+            AppEntry(
+                name = "simpliTV",
+                appId = "LibFXRqQAD.simplitv",
+                tizenAppId = "LibFXRqQAD.simplitv",
+                aliases = listOf("simpli", "simplitv"),
+                samsungAppIds = listOf("LibFXRqQAD.simplitv")
+            ),
+            AppEntry(
+                name = "Internet",
+                appId = "org.tizen.browser",
+                tizenAppId = "org.tizen.browser",
+                aliases = listOf("internet", "browser"),
+                samsungAppIds = listOf("org.tizen.browser")
+            )
         )
 
         "lg" -> listOf(
@@ -177,7 +231,7 @@ class DirectTvStore(private val prefs: SharedPreferences) {
             AppEntry("Netflix", "Netflix", aliases = listOf("netflix"), dialNames = listOf("Netflix", "netflix")),
             AppEntry("Prime Video", "Amazon Prime Video", aliases = listOf("prime", "amazon prime", "prime video"), dialNames = listOf("AmazonVideo", "PrimeVideo", "Amazon Prime Video")),
             AppEntry("Disney+", "Disney+", aliases = listOf("disney", "disney+"), dialNames = listOf("DisneyPlus", "Disney+")),
-            AppEntry("Browser", "Browser", aliases = listOf("browser", "internet"), dialNames = listOf("Browser"), macroKeys = listOf("KEY_HOME"))
+            AppEntry("Browser", "Browser", aliases = listOf("browser", "internet"), dialNames = listOf("Browser"), macroKeys = listOf("HOME"))
         )
 
         else -> emptyList()

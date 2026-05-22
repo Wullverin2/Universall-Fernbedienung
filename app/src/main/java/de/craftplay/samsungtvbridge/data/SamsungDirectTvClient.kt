@@ -155,7 +155,7 @@ class SamsungDirectTvClient(
     suspend fun powerOff(): ActionResponse = withSelectedDevice { device ->
         val port = when (device.deviceType.lowercase()) {
             "lg" -> lgTurnOff(device)
-            "tivo", "vestel" -> sendVestelRemoteKey(device, "KEY_POWER")
+            "tivo", "vestel" -> sendVestelRemoteKey(device, "POWER")
             else -> samsungPowerOff(device)
         }
         ActionResponse(message = "Ausschalten gesendet.", port = port)
@@ -488,14 +488,33 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun samsungLaunchApp(device: DeviceEntry, app: AppEntry) {
-        val candidates = listOfNotNull(app.appId, app.tizenAppId).distinct()
+        val candidates = (app.samsungAppIds + listOfNotNull(app.tizenAppId, app.appId))
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (candidates.isEmpty()) {
+            throw IllegalStateException("Samsung-App-ID fehlt.")
+        }
+
         var lastError: Throwable? = null
+        for (appId in candidates) {
+            for (port in listOf(8002, 8001)) {
+                try {
+                    samsungLaunchAppWebSocket(device, appId, port, app.actionType)
+                    recordDeviceSuccess(device, "Samsung App ${app.name} via WebSocket $appId")
+                    return
+                } catch (error: Throwable) {
+                    lastError = error
+                }
+            }
+        }
+
         for (appId in candidates) {
             for (secure in listOf(false, true)) {
                 try {
                     val protocol = if (secure) "https" else "http"
                     val port = if (secure) 8002 else 8001
                     val client = if (secure) insecureHttpClient else standardHttpClient
+                    recordDeviceRequest(device, "samsung:http-applications/$appId", port)
                     val request = Request.Builder()
                         .url("$protocol://${device.ip}:$port/api/v2/applications/${URLEncoder.encode(appId, "UTF-8")}")
                         .post(ByteArray(0).toRequestBody(null))
@@ -505,24 +524,43 @@ class SamsungDirectTvClient(
                             throw IllegalStateException("HTTP ${response.code} beim Samsung-App-Start.")
                         }
                     }
+                    recordDeviceSuccess(device, "Samsung App ${app.name} via HTTP $appId")
                     return
                 } catch (error: Throwable) {
                     lastError = error
                 }
             }
         }
+
+        if (app.macroKeys.isNotEmpty()) {
+            samsungSendSequence(device, app.macroKeys, delayMs = 450, initialDelayMs = 0)
+            recordDeviceSuccess(device, "Samsung App ${app.name} via Makro")
+            return
+        }
+
+        recordDeviceError(device, "SAMSUNG_APP_LAUNCH_FAILED")
         throw IllegalStateException(lastError?.message ?: "Samsung-App konnte nicht gestartet werden.")
     }
 
+    private suspend fun samsungLaunchAppWebSocket(device: DeviceEntry, appId: String, port: Int, actionType: String) {
+        recordDeviceRequest(device, "samsung:ed.apps.launch/$appId", port)
+        withSamsungRemote(device, port) { socket ->
+            socket.send(samsungAppLaunchPayload(appId, actionType))
+            delay(350)
+        }
+    }
+
     private suspend fun samsungSendKey(device: DeviceEntry, key: String, preferredPort: Int? = null): Int {
+        val samsungKey = TvKeyMapping.samsung(key)
         val ports = listOfNotNull(preferredPort, 8002, 8001).distinct()
         var lastError: Throwable? = null
         for (port in ports) {
             try {
                 withSamsungRemote(device, port) { socket ->
-                    socket.send(samsungRemotePayload(key, "Click"))
+                    socket.send(samsungRemotePayload(samsungKey, "Click"))
                     delay(120)
                 }
+                recordDeviceSuccess(device, "Samsung Key $samsungKey")
                 return port
             } catch (error: Throwable) {
                 lastError = error
@@ -532,12 +570,14 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun samsungSendHoldKey(device: DeviceEntry, port: Int, key: String, holdMs: Int): Int {
+        val samsungKey = TvKeyMapping.samsung(key)
         withSamsungRemote(device, port) { socket ->
-            socket.send(samsungRemotePayload(key, "Press"))
+            socket.send(samsungRemotePayload(samsungKey, "Press"))
             delay(holdMs.toLong())
-            socket.send(samsungRemotePayload(key, "Release"))
+            socket.send(samsungRemotePayload(samsungKey, "Release"))
             delay(120)
         }
+        recordDeviceSuccess(device, "Samsung Hold $samsungKey")
         return port
     }
 
@@ -545,11 +585,12 @@ class SamsungDirectTvClient(
         withSamsungRemote(device, 8002, fallback = true) { socket ->
             if (initialDelayMs > 0) delay(initialDelayMs.toLong())
             keys.forEachIndexed { index, key ->
-                socket.send(samsungRemotePayload(key, "Click"))
+                socket.send(samsungRemotePayload(TvKeyMapping.samsung(key), "Click"))
                 delay(120)
                 if (index < keys.lastIndex) delay(delayMs.toLong())
             }
         }
+        recordDeviceSuccess(device, "Samsung Sequence ${keys.joinToString(",")}")
     }
 
     private suspend fun withSamsungRemote(
@@ -636,6 +677,23 @@ class SamsungDirectTvClient(
                     .put("TypeOfRemote", "SendRemoteKey")
             )
             .toString()
+
+    private fun samsungAppLaunchPayload(appId: String, actionType: String): String {
+        val data = JSONObject()
+            .put("appId", appId)
+            .put("action_type", actionType.ifBlank { "NATIVE_LAUNCH" })
+            .toString()
+        return JSONObject()
+            .put("method", "ms.channel.emit")
+            .put(
+                "params",
+                JSONObject()
+                    .put("event", "ed.apps.launch")
+                    .put("to", "host")
+                    .put("data", data)
+            )
+            .toString()
+    }
 
     private suspend fun lgTurnOff(device: DeviceEntry): Int {
         val session = lgRequest(device, "ssap://system/turnOff")
@@ -724,11 +782,11 @@ class SamsungDirectTvClient(
         val normalized = normalizeName(name)
         when (normalized) {
             normalizeName("Home Dashboard") -> {
-                lgSendKey(device, "KEY_HOME")
+                lgSendKey(device, "HOME")
                 return
             }
             normalizeName("Live TV") -> {
-                lgSendKey(device, "KEY_TV")
+                lgSendKey(device, "TV")
                 return
             }
         }
@@ -787,49 +845,18 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun lgSendKey(device: DeviceEntry, key: String): Int {
-        return when (key) {
-            "KEY_VOLUP" -> lgRequest(device, "ssap://audio/volumeUp").port
-            "KEY_VOLDOWN" -> lgRequest(device, "ssap://audio/volumeDown").port
-            "KEY_MUTE" -> lgRequest(device, "ssap://audio/setMute", JSONObject().put("mute", true)).port
-            "KEY_CHUP" -> lgRequest(device, "ssap://tv/channelUp").port
-            "KEY_CHDOWN" -> lgRequest(device, "ssap://tv/channelDown").port
+        return when (TvKeyMapping.generic(key)) {
+            "VOLUME_UP" -> lgRequest(device, "ssap://audio/volumeUp").port
+            "VOLUME_DOWN" -> lgRequest(device, "ssap://audio/volumeDown").port
+            "MUTE" -> lgRequest(device, "ssap://audio/setMute", JSONObject().put("mute", true)).port
+            "CHANNEL_UP" -> lgRequest(device, "ssap://tv/channelUp").port
+            "CHANNEL_DOWN" -> lgRequest(device, "ssap://tv/channelDown").port
             else -> lgPointerKey(device, key)
         }
     }
 
     private suspend fun lgPointerKey(device: DeviceEntry, key: String): Int {
-        val pointerName = when (key) {
-            "KEY_HOME" -> "HOME"
-            "KEY_RETURN" -> "BACK"
-            "KEY_MENU" -> "MENU"
-            "KEY_UP" -> "UP"
-            "KEY_DOWN" -> "DOWN"
-            "KEY_LEFT" -> "LEFT"
-            "KEY_RIGHT" -> "RIGHT"
-            "KEY_ENTER" -> "ENTER"
-            "KEY_INFO" -> "INFO"
-            "KEY_TV" -> "LIVE_TV"
-            "KEY_SOURCE" -> "INPUT"
-            "KEY_GUIDE" -> "GUIDE"
-            "KEY_EXIT" -> "EXIT"
-            "KEY_TTX_MIX", "KEY_TEXT" -> "TEXT"
-            "KEY_PLAY" -> "PLAY"
-            "KEY_PAUSE" -> "PAUSE"
-            "KEY_STOP" -> "STOP"
-            "KEY_REWIND" -> "REWIND"
-            "KEY_FF" -> "FASTFORWARD"
-            "KEY_0" -> "0"
-            "KEY_1" -> "1"
-            "KEY_2" -> "2"
-            "KEY_3" -> "3"
-            "KEY_4" -> "4"
-            "KEY_5" -> "5"
-            "KEY_6" -> "6"
-            "KEY_7" -> "7"
-            "KEY_8" -> "8"
-            "KEY_9" -> "9"
-            else -> throw IllegalStateException("LG-Key derzeit nicht unterstützt: $key")
-        }
+        val pointerName = TvKeyMapping.lgPointerName(key)
         val session = lgRequest(device, "ssap://com.webos.service.networkinput/getPointerInputSocket")
         val socketPath = session.payload?.optString("socketPath")
             ?: throw IllegalStateException("LG Pointer-Socket konnte nicht ermittelt werden.")
@@ -1040,7 +1067,7 @@ class SamsungDirectTvClient(
     }
 
     private suspend fun sendVestelRemoteKey(device: DeviceEntry, key: String): Int {
-        val button = mapVestelButton(key)
+        val button = TvKeyMapping.vestelButton(key)
         val codes = listOfNotNull(
             vestelLegacyKeyCodes[button],
             vestelAndroidKeyCodes[button],
@@ -1067,7 +1094,7 @@ class SamsungDirectTvClient(
 
         if (isPortOpen(device.ip, 31339)) {
             try {
-                sendTivoCode(device, mapTivoKey(key))
+                sendTivoCode(device, TvKeyMapping.tivoCode(key))
                 recordDeviceSuccess(device, "TiVo IRCODE $key")
                 return 31339
             } catch (error: Throwable) {

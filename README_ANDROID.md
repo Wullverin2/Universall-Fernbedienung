@@ -12,6 +12,17 @@ Diese Android-App steuert kompatible Smart-TVs direkt im lokalen Netzwerk. Eine 
 - Quellenwechsel und App-Starts, soweit das TV-Modell lokale Kommandos akzeptiert
 - Diagnoseanzeige mit Plattform, Pairing-Status, letztem Request und letztem Fehler
 - persistentes Diagnose-Log mit Zeitstempel
+- herstellerabhaengiges Keymapping statt fest verdrahteter Samsung-Tastencodes
+
+## Keymapping und App-Starts
+
+Die App verwendet intern neutrale Tasten wie `HOME`, `OK`, `VOLUME_UP`, `TELETEXT` und `DIGIT_1`. Erst beim Senden wird daraus der passende Hersteller-Code:
+
+- Samsung: Samsung-Remote-Keys wie `KEY_HOME` und App-Launch ueber WebSocket `ed.apps.launch`
+- LG webOS: SSAP-Kommandos und Pointer-Input-Socket
+- Nabo/Vestel: SmartCenter-Buttons und TiVo-IRCODE-Fallback
+
+Samsung-App-Buttons nutzen mehrere IDs pro App, zuerst die Tizen/SDB-Paket-ID und danach die numerische Samsung-App-ID. Das verbessert die MU-Serie und aehnliche Tizen-Modelle.
 
 ## Diagnose-Log
 

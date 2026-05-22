@@ -27,6 +27,7 @@ data class AppEntry(
     val tizenAppId: String? = null,
     val aliases: List<String> = emptyList(),
     val actionType: String = "NATIVE_LAUNCH",
+    val samsungAppIds: List<String> = emptyList(),
     val dialNames: List<String> = emptyList(),
     val lgAppIds: List<String> = emptyList(),
     val vestelKeys: List<String> = emptyList(),

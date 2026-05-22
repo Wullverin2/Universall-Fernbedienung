@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import de.craftplay.samsungtvbridge.data.DirectTvStore
 import de.craftplay.samsungtvbridge.data.PersistentAppLogger
 import de.craftplay.samsungtvbridge.data.SamsungDirectTvClient
+import de.craftplay.samsungtvbridge.data.TvKeyMapping
 import de.craftplay.samsungtvbridge.model.ActionResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -166,25 +167,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun describeRemoteKey(key: String): String = when (key) {
-        "KEY_HOME" -> "Home oeffnen"
-        "KEY_RETURN" -> "Zurueck"
-        "KEY_MENU" -> "Menue oeffnen"
-        "KEY_SOURCE" -> "Eingangsquelle oeffnen"
-        "KEY_GUIDE" -> "TV-Guide oeffnen"
-        "KEY_INFO" -> "Info anzeigen"
-        "KEY_TTX_MIX" -> "Teletext"
-        "KEY_ENTER" -> "OK/Enter"
-        "KEY_UP" -> "Navigation hoch"
-        "KEY_DOWN" -> "Navigation runter"
-        "KEY_LEFT" -> "Navigation links"
-        "KEY_RIGHT" -> "Navigation rechts"
-        "KEY_VOLUP" -> "Lauter"
-        "KEY_VOLDOWN" -> "Leiser"
-        "KEY_MUTE" -> "Stumm schalten"
-        "KEY_CHUP" -> "Sender hoch"
-        "KEY_CHDOWN" -> "Sender runter"
-        "KEY_EXIT" -> "Beenden"
+    private fun describeRemoteKey(key: String): String = when (TvKeyMapping.generic(key)) {
+        "HOME" -> "Home öffnen"
+        "BACK" -> "Zurück"
+        "MENU" -> "Menü öffnen"
+        "SOURCE" -> "Eingangsquelle öffnen"
+        "GUIDE" -> "TV-Guide öffnen"
+        "INFO" -> "Info anzeigen"
+        "TELETEXT" -> "Teletext"
+        "OK" -> "OK/Enter"
+        "UP" -> "Navigation hoch"
+        "DOWN" -> "Navigation runter"
+        "LEFT" -> "Navigation links"
+        "RIGHT" -> "Navigation rechts"
+        "VOLUME_UP" -> "Lauter"
+        "VOLUME_DOWN" -> "Leiser"
+        "MUTE" -> "Stumm schalten"
+        "CHANNEL_UP" -> "Sender hoch"
+        "CHANNEL_DOWN" -> "Sender runter"
+        "EXIT" -> "Beenden"
         else -> "Remote-Taste senden"
     }
 

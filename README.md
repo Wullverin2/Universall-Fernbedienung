@@ -22,6 +22,17 @@ Die App unterstuetzt derzeit:
 - App-Starts, soweit das jeweilige TV-Modell lokale App-Kommandos akzeptiert
 - Diagnose-Ausgabe mit Plattform, Capabilities, letztem Fehler und letztem erfolgreichen Befehl
 - persistentes Diagnose-Log mit Zeitstempel, das per ADB vom Smartphone ausgelesen werden kann
+- herstellerabhaengiges Keymapping fuer Samsung, LG webOS und Nabo/Vestel
+
+## Keymapping
+
+Die Oberflaeche sendet keine Samsung-spezifischen Tastencodes mehr direkt. Buttons wie `HOME`, `OK`, `VOLUME_UP`, `TELETEXT` oder `DIGIT_1` werden zentral in `TvKeyMapping.kt` auf das aktive TV-System uebersetzt:
+
+- Samsung Tizen: `KEY_HOME`, `KEY_ENTER`, `KEY_VOLUP`, `KEY_TTX_MIX` usw.
+- LG webOS: SSAP-Audio-/TV-Kommandos und Pointer-Input-Socket-Namen wie `HOME`, `ENTER`, `VOLUMEUP`
+- Nabo/Vestel: SmartCenter-Buttons wie `BUTTON_HOME`, `BUTTON_OK`, `BUTTON_VOL_UP`; TiVo-IRCODE bleibt Fallback
+
+Samsung-App-Starts probieren zuerst den WebSocket-App-Launch ueber `ed.apps.launch` mit den per SDB bekannten Tizen-Paket-IDs und danach den HTTP-Endpunkt `/api/v2/applications/...`. Das ist besonders fuer aeltere MU/Tizen-Modelle wichtig.
 
 ## Samsung
 
@@ -172,6 +183,8 @@ node scripts\create-test-checklist-pdf.mjs
   - direkte TV-Kommunikation fuer Samsung, LG und Nabo/Vestel
 - `app/src/main/java/de/craftplay/samsungtvbridge/data/PersistentAppLogger.kt`
   - persistente Diagnose-Logdatei fuer App-Nutzung und ADB-Auswertung
+- `app/src/main/java/de/craftplay/samsungtvbridge/data/TvKeyMapping.kt`
+  - zentrale Uebersetzung neutraler Fernbedienungstasten in Hersteller-Codes
 
 ## Wichtig
 
